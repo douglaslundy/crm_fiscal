@@ -13,7 +13,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <strong>Painel da loja</strong>
         {soon("Painel")}
         <Link href="/admin/categorias">Categorias</Link>
-        {soon("Produtos")}
+        <Link href="/admin/produtos">Produtos</Link>
         {soon("Pedidos")}
         {soon("Clientes")}
         <Link href="/admin/assinatura">Assinatura</Link>
