@@ -40,7 +40,7 @@ export function VariantEditor({ productId, variants, productName, readOnly }: { 
     return run([() => api(`${base}/${v.id}`, "PATCH", { sku: String(fd.get("sku")), priceCents: toCents(String(fd.get("price"))), stock: Number(fd.get("stock")) })]);
   };
   const remove = (v: Variant) => {
-    if (window.confirm(`Excluir a variação ${v.color} / ${v.size}?`)) void run([() => api(`${base}/${v.id}`, "DELETE")]);
+    if (window.confirm(`Excluir a variação ${v.color} / ${v.size}? Se ela tiver pedidos, será apenas desativada.`)) void run([() => api(`${base}/${v.id}`, "DELETE")]);
   };
 
   return (

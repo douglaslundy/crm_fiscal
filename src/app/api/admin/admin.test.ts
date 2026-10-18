@@ -362,8 +362,9 @@ describe("/api/admin/products: comportamento", () => {
     const o = await db.order.create({ data: { storeId: storeA, customerId: c.id, subtotalCents: 1, shippingCents: 0, totalCents: 1, shippingService: "PAC", addressSnapshot: {} } });
     await db.orderItem.create({ data: { storeId: storeA, orderId: o.id, variantId: varA1, productName: "x", sku: "x", color: "x", size: "x", unitPriceCents: 1, quantity: 1 } });
     expect(await res(send("products/[id]", "DELETE", undefined, prodA))).toEqual([409, "PRODUCT_HAS_ORDERS"]);
-    expect(await res(send("products/[id]/variants/[variantId]", "DELETE", undefined, prodA, varA1))).toEqual([409, "VARIANT_HAS_ORDERS"]);
-    expect((await send("products/[id]/variants/[variantId]", "PATCH", { active: false }, prodA, varA1)).status).toBe(200);
+    const soft = await send("products/[id]/variants/[variantId]", "DELETE", undefined, prodA, varA1);
+    expect([soft.status, await soft.json()]).toEqual([200, { ok: true, softDeleted: true }]);
+    expect(await prisma.variant.findUniqueOrThrow({ where: { id: varA1 } })).toMatchObject({ active: false });
     expect(await res(send("products/[id]/variants/[variantId]", "PATCH", { active: false }, prodA, varA2))).toEqual([400, "LAST_ACTIVE_VARIANT"]);
   });
   it("lista: filtros invalidos -> 400; validos filtram so a loja do host", async () => {

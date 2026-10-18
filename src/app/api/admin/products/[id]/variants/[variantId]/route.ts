@@ -24,8 +24,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
   if (denied(ctx)) return ctx;
   try {
     const { id, variantId } = await params;
-    await deleteVariant(ctx.store.id, id, variantId);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(await deleteVariant(ctx.store.id, id, variantId));
   } catch (e) {
     return domainError(e);
   }

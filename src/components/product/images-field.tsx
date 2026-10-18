@@ -35,7 +35,7 @@ export function ImagesField({ images, onChange, colors }: { images: Img[]; onCha
     <div>
       <ul style={{ listStyle: "none", padding: 0, display: "flex", flexWrap: "wrap", gap: 12 }}>
         {images.map((im, i) => (
-          <li key={im.url} style={{ border: "1px solid #ccc", padding: 6 }}>
+          <li key={`${i}-${im.url}`} style={{ border: "1px solid #ccc", padding: 6 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={im.url} alt={`Imagem ${i + 1}`} width={96} height={96} style={{ objectFit: "cover", display: "block" }} />
             <select aria-label="Cor da imagem" value={im.color ?? ""} onChange={(e) => onChange(images.map((x, j) => (j === i ? { ...x, color: e.target.value || null } : x)))}>

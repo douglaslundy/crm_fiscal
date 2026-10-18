@@ -10,7 +10,6 @@ const MESSAGES: Record<string, string> = {
   NO_ACTIVE_VARIANT: "Produto ativo precisa de pelo menos uma variação ativa.",
   LAST_ACTIVE_VARIANT: "Esta é a última variação ativa: desative o produto antes.",
   PRODUCT_HAS_ORDERS: "Produto com pedidos não pode ser excluído: desative-o.",
-  VARIANT_HAS_ORDERS: "Variação com pedidos não pode ser excluída: desative-a.",
   IMAGE_URL_INVALID: "Imagem inválida: envie de novo.",
   IMAGE_COLOR_INVALID: "A cor da imagem precisa ser a cor de uma variação.",
   TOO_MANY_VARIANTS: "No máximo 100 variações por produto.",

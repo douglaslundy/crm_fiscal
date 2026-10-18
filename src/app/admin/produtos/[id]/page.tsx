@@ -18,12 +18,15 @@ export default async function EditarProdutoPage({ params }: { params: Promise<{ 
   });
   const categories = (await listCategories(store.id)).map(({ id, name }) => ({ id, name }));
   const variants = product.variants.map(({ id, color, size, sku, priceCents, stock, active }) => ({ id, color, size, sku, priceCents, stock, active }));
+  const variantColors = [...new Set(variants.map((v) => v.color))];
+  // key: apos renomear/excluir variacao (router.refresh) o formulario remonta com as cores e imagens atuais, sem estado velho.
+  const formKey = JSON.stringify([variantColors, product.images.map((i) => [i.url, i.color])]);
   return (
     <main>
       <p><Link href="/admin/produtos">← Produtos</Link></p>
       <h1>{product.name}</h1>
       {readOnly && <p role="status">Loja suspensa: o produto fica somente para leitura.</p>}
-      <ProductForm categories={categories} product={product} variantColors={[...new Set(variants.map((v) => v.color))]} readOnly={readOnly} />
+      <ProductForm key={formKey} categories={categories} product={product} variantColors={variantColors} readOnly={readOnly} />
       <h2>Variações</h2>
       <VariantEditor productId={product.id} variants={variants} productName={product.name} readOnly={readOnly} />
       {!readOnly && <DeleteProduct id={product.id} name={product.name} />}

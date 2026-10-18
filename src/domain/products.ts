@@ -8,12 +8,12 @@ import { MAX_VARIANTS, OPTION_MAX } from "./variants";
 
 export type ProductErrorCode =
   | "PRODUCT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "CATEGORY_INVALID" | "SLUG_INVALID" | "SLUG_TAKEN" | "SKU_TAKEN" | "VARIANT_EXISTS"
-  | "NO_ACTIVE_VARIANT" | "LAST_ACTIVE_VARIANT" | "PRODUCT_HAS_ORDERS" | "VARIANT_HAS_ORDERS" | "IMAGE_URL_INVALID"
+  | "NO_ACTIVE_VARIANT" | "LAST_ACTIVE_VARIANT" | "PRODUCT_HAS_ORDERS" | "IMAGE_URL_INVALID"
   | "IMAGE_COLOR_INVALID" | "TOO_MANY_VARIANTS";
 
 const STATUS: Record<ProductErrorCode, 400 | 404 | 409> = {
   PRODUCT_NOT_FOUND: 404, VARIANT_NOT_FOUND: 404, SLUG_TAKEN: 409, SKU_TAKEN: 409, VARIANT_EXISTS: 409, PRODUCT_HAS_ORDERS: 409,
-  VARIANT_HAS_ORDERS: 409, CATEGORY_INVALID: 400, SLUG_INVALID: 400, NO_ACTIVE_VARIANT: 400, LAST_ACTIVE_VARIANT: 400,
+  CATEGORY_INVALID: 400, SLUG_INVALID: 400, NO_ACTIVE_VARIANT: 400, LAST_ACTIVE_VARIANT: 400,
   IMAGE_URL_INVALID: 400, IMAGE_COLOR_INVALID: 400, TOO_MANY_VARIANTS: 400,
 };
 
@@ -109,10 +109,15 @@ async function assertCategory(tx: Tx, id: string): Promise<void> {
 }
 
 // Remocao no armazenamento e posterior ao commit e melhor-esforco: falha deixa arquivo orfao, nunca dado inconsistente.
-async function removeImages(urls: string[]): Promise<void> {
+// URL ainda usada por outra imagem (mesmo arquivo em dois produtos) fica.
+async function removeImages(storeId: string, urls: string[]): Promise<void> {
   if (!urls.length) return;
   const storage = getStorage();
-  await Promise.all(urls.map((u) => storage.remove(u).catch((e) => console.error("Falha ao remover imagem", u, e))));
+  const db = dbForStore(storeId);
+  await Promise.all([...new Set(urls)].map(async (u) => {
+    if (await db.productImage.count({ where: { url: u } })) return;
+    await storage.remove(u).catch((e) => console.error("Falha ao remover imagem", u, e));
+  }));
 }
 
 const FULL = { variants: { orderBy: [{ color: "asc" }, { size: "asc" }] }, images: { orderBy: { position: "asc" } } } satisfies Prisma.ProductInclude;
@@ -162,7 +167,7 @@ export async function updateProduct(storeId: string, id: string, input: ProductP
       }
       return tx.product.update({ where: { id }, data: { ...data, ...(data.name !== undefined && { slug: productSlug(data.name) }) }, include: FULL });
     }, { lockStore: true });
-    await removeImages(dropped);
+    await removeImages(storeId, dropped);
     return result;
   } catch (e) {
     throw uniqueToProductError(e);
@@ -183,7 +188,7 @@ export async function deleteProduct(storeId: string, id: string): Promise<void> 
   } catch (e) {
     throw isFkError(e) ? new ProductError("PRODUCT_HAS_ORDERS") : e;
   }
-  await removeImages(urls);
+  await removeImages(storeId, urls);
 }
 
 export const PAGE_SIZE = 25;

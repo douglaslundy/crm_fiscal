@@ -218,11 +218,21 @@ describe("variacoes", () => {
 });
 
 describe("exclusao com historico de pedidos", () => {
-  it("variacao com pedido -> 409 VARIANT_HAS_ORDERS; desativar continua possivel", async () => {
+  it("variacao com pedido: excluir desativa (soft delete) e mantem a linha; ultima ativa continua protegida", async () => {
     const p = await createProduct(a, input(catA));
-    await order(a, p.variants[0].id);
-    expect(await code(deleteVariant(a, p.id, p.variants[0].id))).toBe("409 VARIANT_HAS_ORDERS");
-    await expect(updateVariant(a, p.id, p.variants[0].id, { active: false })).resolves.toMatchObject({ active: false });
+    const [v1, v2] = p.variants;
+    await order(a, v1.id);
+    expect(await deleteVariant(a, p.id, v1.id)).toEqual({ ok: true, softDeleted: true });
+    expect(await prisma.variant.findUniqueOrThrow({ where: { id: v1.id } })).toMatchObject({ active: false });
+    await order(a, v2.id);
+    expect(await code(deleteVariant(a, p.id, v2.id))).toBe("400 LAST_ACTIVE_VARIANT");
+    expect(await prisma.variant.findUniqueOrThrow({ where: { id: v2.id } })).toMatchObject({ active: true });
+    expect(await deleteVariant(a, p.id, v1.id)).toEqual({ ok: true, softDeleted: true }); // ja inativa: idempotente
+  });
+  it("sem pedido: excluir apaga de verdade", async () => {
+    const p = await createProduct(a, input(catA));
+    expect(await deleteVariant(a, p.id, p.variants[0].id)).toEqual({ ok: true, softDeleted: false });
+    expect(await prisma.variant.count({ where: { id: p.variants[0].id } })).toBe(0);
   });
   it("produto com pedido -> 409 PRODUCT_HAS_ORDERS; sem pedido apaga em cascata e remove imagens", async () => {
     const url = await img(a);
@@ -237,6 +247,46 @@ describe("exclusao com historico de pedidos", () => {
     expect(await prisma.productImage.count({ where: { productId: q.id } })).toBe(0);
     expect(storage.removed).toEqual([q.images[0].url]);
     expect(await code(deleteProduct(b, p.id))).toBe("404 PRODUCT_NOT_FOUND");
+  });
+});
+
+describe("cor das imagens acompanha as variacoes", () => {
+  const colorsOf = async (productId: string) =>
+    (await prisma.productImage.findMany({ where: { productId }, orderBy: { position: "asc" } })).map((i) => i.color);
+  it("renomear a cor da unica variacao daquela cor renomeia nas imagens; com outra variacao da cor antiga, mantem", async () => {
+    const p = await createProduct(a, input(catA, {
+      variants: [variant("Preto", "P"), variant("Preto", "M"), variant("Azul", "P")],
+      images: [{ url: await img(a), color: "Preto" }, { url: await img(a), color: "Azul" }],
+    }));
+    const byKey = (c: string, s: string) => p.variants.find((v) => v.color === c && v.size === s)!.id;
+    await updateVariant(a, p.id, byKey("Azul", "P"), { color: "Marinho" });
+    expect(await colorsOf(p.id)).toEqual(["Preto", "Marinho"]);
+    await updateVariant(a, p.id, byKey("Preto", "P"), { color: "Grafite" }); // ainda ha Preto/M
+    expect(await colorsOf(p.id)).toEqual(["Preto", "Marinho"]);
+  });
+  it("apagar (ou desativar por exclusao) a ultima variacao de uma cor tira a cor das imagens", async () => {
+    const p = await createProduct(a, input(catA, {
+      variants: [variant("Preto", "P"), variant("Preto", "M"), variant("Azul", "P")],
+      images: [{ url: await img(a), color: "Preto" }, { url: await img(a), color: "Azul" }],
+    }));
+    const id = (c: string, s: string) => p.variants.find((v) => v.color === c && v.size === s)!.id;
+    await deleteVariant(a, p.id, id("Preto", "P"));
+    expect(await colorsOf(p.id)).toEqual(["Preto", "Azul"]);
+    await order(a, id("Azul", "P"));
+    await deleteVariant(a, p.id, id("Azul", "P")); // soft delete
+    expect(await colorsOf(p.id)).toEqual(["Preto", null]);
+  });
+});
+
+describe("remocao de arquivos compartilhados", () => {
+  it("nao remove do armazenamento URL ainda usada por outra imagem", async () => {
+    const shared = await img(a);
+    const p1 = await createProduct(a, input(catA, { images: [{ url: shared }] }));
+    const p2 = await createProduct(a, input(catA, { name: "Outro", variants: [variant("Z", "P")], images: [{ url: shared }] }));
+    await updateProduct(a, p1.id, { images: [] });
+    expect(storage.removed).toEqual([]);
+    await deleteProduct(a, p2.id);
+    expect(storage.removed).toEqual([shared]);
   });
 });
 

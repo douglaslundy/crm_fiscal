@@ -19,6 +19,15 @@ async function findVariant(tx: Tx, productId: string, variantId: string) {
   return v;
 }
 
+/**
+ * Imagens marcadas com `oldColor` passam a `newColor` (null = sem cor) quando nenhuma outra variacao do produto
+ * continua com a cor antiga. `onlyActive`: na exclusao suave, variacao inativa nao segura a cor.
+ */
+async function syncImageColor(tx: Tx, productId: string, variantId: string, oldColor: string, newColor: string | null, onlyActive = false) {
+  const still = await tx.variant.count({ where: { productId, color: oldColor, id: { not: variantId }, ...(onlyActive && { active: true }) } });
+  if (!still) await tx.productImage.updateMany({ where: { productId, color: oldColor }, data: { color: newColor } });
+}
+
 // Todas sob a trava da loja: contagem/ultima-ativa nao se intercalam com outra edicao do mesmo produto.
 const run = async <T>(storeId: string, fn: (tx: Tx) => Promise<T>): Promise<T> => {
   try {
@@ -50,20 +59,34 @@ export async function updateVariant(storeId: string, productId: string, variantI
       const others = await tx.variant.findMany({ where: { productId, id: { not: variantId } }, select: { color: true, size: true } });
       if (others.some((o) => o.color.toLowerCase() === color.toLowerCase() && o.size.toLowerCase() === size.toLowerCase())) throw new ProductError("VARIANT_EXISTS");
     }
-    return tx.variant.update({ where: { id: variantId }, data });
+    const updated = await tx.variant.update({ where: { id: variantId }, data });
+    if (updated.color !== v.color) await syncImageColor(tx, productId, variantId, v.color, updated.color);
+    return updated;
   });
 }
 
-/** Variacao com historico de pedidos nao sai (FK NoAction): 409, o lojista desativa. */
-export async function deleteVariant(storeId: string, productId: string, variantId: string): Promise<void> {
+/** Variacao com historico de pedidos nao sai (FK NoAction): exclusao vira desativacao (softDeleted). */
+export async function deleteVariant(storeId: string, productId: string, variantId: string): Promise<{ ok: true; softDeleted: boolean }> {
+  const soft = async (tx: Tx, v: { active: boolean; color: string }) => {
+    if (v.active) {
+      await assertNotLastActive(tx, productId, variantId);
+      await tx.variant.update({ where: { id: variantId }, data: { active: false } });
+    }
+    await syncImageColor(tx, productId, variantId, v.color, null, true);
+    return { ok: true as const, softDeleted: true };
+  };
   try {
-    await run(storeId, async (tx) => {
+    return await run(storeId, async (tx) => {
       const v = await findVariant(tx, productId, variantId);
-      if (await tx.orderItem.count({ where: { variantId } })) throw new ProductError("VARIANT_HAS_ORDERS");
+      if (await tx.orderItem.count({ where: { variantId } })) return soft(tx, v);
       if (v.active) await assertNotLastActive(tx, productId, variantId);
       await tx.variant.delete({ where: { id: variantId } });
+      await syncImageColor(tx, productId, variantId, v.color, null);
+      return { ok: true as const, softDeleted: false };
     });
   } catch (e) {
-    throw isFkError(e) ? new ProductError("VARIANT_HAS_ORDERS") : e;
+    // Corrida: pedido criado entre a contagem e o delete -> mesma saida da exclusao suave.
+    if (!isFkError(e)) throw e;
+    return run(storeId, async (tx) => soft(tx, await findVariant(tx, productId, variantId)));
   }
 }
