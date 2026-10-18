@@ -36,7 +36,10 @@ beforeEach(async () => {
 afterEach(async () => {
   await prisma.store.deleteMany({ where: { id: { in: stores.splice(0) } } }); // cascata
 });
-afterAll(() => prisma.$disconnect());
+afterAll(async () => {
+  await prisma.plan.deleteMany({ where: { name: "Teste-Escopo" } }); // schema.test conta os planos
+  await prisma.$disconnect();
+});
 
 describe("dbForStore: leitura", () => {
   it("findMany nao devolve produto de outra loja", async () => {

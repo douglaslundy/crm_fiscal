@@ -29,8 +29,11 @@ const variant = (over: object = {}) => ({
 
 describe("seed", () => {
   it("roda duas vezes e gera contagens esperadas", async () => {
+    process.env.SEED_MASTER_EMAIL = "  Master@Test.LOCAL "; // normalizado: mesma conta, login funciona
     await seed(prisma);
+    process.env.SEED_MASTER_EMAIL = "master@test.local";
     expect(await prisma.account.count({ where: { isMaster: true } })).toBe(1);
+    expect(await prisma.account.findUnique({ where: { email: "master@test.local" } })).not.toBeNull();
     expect(await prisma.plan.count()).toBe(3);
     expect(await prisma.store.count({ where: { slug: "demo" } })).toBe(1);
     expect(await prisma.category.count({ where: { storeId } })).toBe(2);

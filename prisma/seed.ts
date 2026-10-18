@@ -26,7 +26,7 @@ const VARIATIONS = [
 ];
 
 export async function seed(prisma: PrismaClient) {
-  const email = process.env.SEED_MASTER_EMAIL;
+  const email = process.env.SEED_MASTER_EMAIL?.trim().toLowerCase(); // login compara em minusculas
   const password = process.env.SEED_MASTER_PASSWORD;
   if (!email || !password) throw new Error("Defina SEED_MASTER_EMAIL e SEED_MASTER_PASSWORD");
 

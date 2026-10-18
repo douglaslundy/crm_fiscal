@@ -30,7 +30,12 @@ export function RegisterForm({ next }: { next: string }) {
       setBusy(false);
       return setError(MESSAGES[res.status] ?? "Não foi possível concluir o cadastro.");
     }
-    await signIn("customer", { email: body.email, password: body.password, redirect: false });
+    const r = await signIn("customer", { email: body.email, password: body.password, redirect: false });
+    if (!r?.ok || r.error) {
+      setBusy(false);
+      setError("Cadastro criado, mas não foi possível entrar. Faça login.");
+      return router.replace(`/loja-entrar?aviso=cadastro&next=${encodeURIComponent(next)}`);
+    }
     router.replace(next);
     router.refresh();
   }
