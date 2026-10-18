@@ -7,10 +7,11 @@ describe("storefrontPath", () => {
     expect(storefrontPath("/c/camisetas")).toBe("/vitrine/c/camisetas");
     expect(storefrontPath("/p/camiseta-basica")).toBe("/vitrine/p/camiseta-basica");
     expect(storefrontPath("/buscar")).toBe("/vitrine/buscar");
+    expect(storefrontPath("/carrinho")).toBe("/vitrine/carrinho");
   });
   it("demais caminhos nao sao reescritos", () => {
     for (const p of ["/admin", "/admin/produtos", "/entrar", "/loja-entrar", "/cadastro", "/api/admin/x", "/master",
-      "/_next/data/x", "/carrinho", "/checkout", "/conta", "/c", "/c/", "/p", "/p/", "/c/a/b", "/buscarx", "/buscar/x", "/vitrine", "/vitrine/p/x", "/cx/a"]) {
+      "/_next/data/x", "/carrinho/x", "/carrinho/", "/checkout", "/conta", "/c", "/c/", "/p", "/p/", "/c/a/b", "/buscarx", "/buscar/x", "/vitrine", "/vitrine/p/x", "/cx/a"]) {
       expect(storefrontPath(p), p).toBeNull();
     }
   });

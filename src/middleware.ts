@@ -4,7 +4,7 @@ import { storefrontPath } from "@/lib/storefront-routes";
 
 // Sem banco (edge): so classifica o host. Loja -> header x-store-host para getCurrentStore();
 // plataforma -> segue sem o header. Host desconhecido vira 404 neutro em getCurrentStore().
-// Loja: caminhos publicos ("/", /c/*, /p/*, /buscar) sao reescritos para /vitrine/* (a "/" fisica e da plataforma).
+// Loja: caminhos publicos ("/", /c/*, /p/*, /buscar, /carrinho) sao reescritos para /vitrine/* (a "/" fisica e da plataforma).
 export function middleware(req: NextRequest) {
   const headers = new Headers(req.headers);
   headers.delete(STORE_HOST_HEADER); // valor vindo do cliente nunca e confiavel

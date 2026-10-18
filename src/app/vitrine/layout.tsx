@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { getMenu, isStoreOpen } from "@/domain/catalog";
 import { getCurrentStore } from "@/lib/tenant";
+import { CartLink } from "./cart-link";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function VitrineLayout({ children }: { children: ReactNode 
               <button type="submit">Buscar</button>
             </form>
           )}
+          {isStoreOpen(store) && <CartLink />}
         </div>
         {menu.length > 0 && (
           <nav aria-label="Categorias" style={{ marginTop: 8 }}>

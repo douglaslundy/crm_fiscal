@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { add, read, serverSnapshot, subscribe } from "@/lib/cart-store";
 import { PriceInfo } from "../../catalog-view";
 
 type Variant = { id: string; color: string; size: string; priceCents: number; stock: number };
@@ -14,6 +15,9 @@ export function ProductOptions({ name, variants, images, pixPercent }: { name: s
   const [size, setSize] = useState(sizes.length === 1 ? sizes[0] : "");
   const find = (c: string, s: string) => variants.find((v) => v.color === c && v.size === s);
   const chosen = find(color, size);
+  const inCart = useSyncExternalStore(subscribe, read, serverSnapshot).find((l) => l.variantId === chosen?.id)?.qty ?? 0;
+  const [added, setAdded] = useState(false);
+  const canAdd = !!chosen && chosen.stock > inCart; // o servidor revalida de qualquer forma
   const image = images.find((i) => color && i.color === color) ?? images[0];
   const price = chosen?.priceCents ?? Math.min(...variants.map((v) => v.priceCents));
   const chip = (active: boolean, disabled: boolean) => ({
@@ -49,8 +53,11 @@ export function ProductOptions({ name, variants, images, pixPercent }: { name: s
         {chosen && chosen.stock === 0 && <p role="status">Esgotado</p>}
         {chosen && chosen.stock === 1 && <p role="status" style={{ color: "#b45309", fontWeight: 600 }}>Última peça!</p>}
         {!variants.some((v) => v.stock > 0) && <p role="status">Esgotado</p>}
-        {/* O carrinho chega numa proxima etapa: o botao fica desabilitado ate la. */}
-        <button type="button" disabled style={{ padding: "10px 16px", marginTop: 8 }}>Adicionar ao carrinho</button>
+        <button type="button" disabled={!canAdd} style={{ padding: "10px 16px", marginTop: 8 }}
+          onClick={() => { if (chosen) { add(chosen.id, 1); setAdded(true); } }}>Adicionar ao carrinho</button>
+        {!chosen && <p style={{ fontSize: 14 }}>Escolha cor e tamanho.</p>}
+        {chosen && inCart >= chosen.stock && chosen.stock > 0 && <p role="status">Você já tem todas as unidades no carrinho.</p>}
+        {added && <p role="status">Adicionado ao carrinho. <a href="/carrinho">Ver carrinho</a></p>}
       </div>
     </div>
   );
