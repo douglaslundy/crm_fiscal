@@ -6,3 +6,268 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum StoreStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELED
+}
+
+enum SubStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELED
+}
+
+enum MemberRole {
+  OWNER
+  STAFF
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELED
+}
+
+// ---------- plataforma (sem storeId) ----------
+
+model Account {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  isMaster     Boolean       @default(false)
+  memberships  StoreMember[]
+}
+
+model Plan {
+  id                String  @id @default(cuid())
+  name              String  @unique
+  priceCents        Int
+  productLimit      Int?
+  staffLimit        Int
+  customDomain      Boolean
+  advancedMetrics   Boolean
+  csvExport         Boolean
+  transactionFeeBps Int     @default(0)
+  active            Boolean @default(true)
+  stores            Store[]
+}
+
+model Store {
+  id           String         @id @default(cuid())
+  slug         String         @unique
+  name         String
+  status       StoreStatus    @default(TRIAL)
+  planId       String
+  plan         Plan           @relation(fields: [planId], references: [id], onDelete: Restrict)
+  trialEndsAt  DateTime?
+  graceEndsAt  DateTime?
+  createdAt    DateTime       @default(now())
+  members      StoreMember[]
+  domains      StoreDomain[]
+  subscription Subscription?
+  customers    Customer[]
+  addresses    Address[]
+  categories   Category[]
+  products     Product[]
+  images       ProductImage[]
+  variants     Variant[]
+  orders       Order[]
+  orderItems   OrderItem[]
+  settings     StoreSetting[]
+}
+
+model StoreMember {
+  storeId   String
+  accountId String
+  role      MemberRole
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  account   Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, accountId])
+  @@index([accountId])
+}
+
+model StoreDomain {
+  id       String  @id @default(cuid())
+  storeId  String
+  host     String  @unique
+  verified Boolean @default(false)
+  store    Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+}
+
+model Subscription {
+  id               String    @id @default(cuid())
+  storeId          String    @unique
+  status           SubStatus
+  mpPreapprovalId  String?   @unique
+  currentPeriodEnd DateTime?
+  store            Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+// ---------- loja (todos com storeId) ----------
+
+model Customer {
+  id           String    @id @default(cuid())
+  storeId      String
+  name         String
+  email        String
+  cpf          String
+  phone        String
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  addresses    Address[]
+  orders       Order[]
+
+  @@unique([storeId, email])
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  storeId    String
+  customerId String
+  cep        String
+  street     String
+  number     String
+  complement String?
+  district   String
+  city       String
+  state      String
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([customerId])
+}
+
+model Category {
+  id       String     @id @default(cuid())
+  storeId  String
+  parentId String?
+  slug     String
+  name     String
+  store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@unique([storeId, slug])
+  @@index([parentId])
+}
+
+model Product {
+  id          String         @id @default(cuid())
+  storeId     String
+  categoryId  String?
+  slug        String
+  name        String
+  description String         @default("")
+  weightGrams Int
+  heightCm    Int
+  widthCm     Int
+  lengthCm    Int
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  store       Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category    Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  images      ProductImage[]
+  variants    Variant[]
+
+  @@unique([storeId, slug])
+  @@index([categoryId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  storeId   String
+  productId String
+  url       String
+  color     String?
+  position  Int     @default(0)
+  store     Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([productId])
+}
+
+// CHECK (stock >= 0) vive no SQL da migration (Prisma nao expressa).
+model Variant {
+  id         String      @id @default(cuid())
+  storeId    String
+  productId  String
+  sku        String
+  color      String
+  size       String
+  priceCents Int
+  stock      Int         @default(0)
+  active     Boolean     @default(true)
+  store      Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@unique([storeId, sku])
+  @@unique([productId, color, size])
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  storeId         String
+  customerId      String
+  status          OrderStatus @default(PENDING_PAYMENT)
+  subtotalCents   Int
+  shippingCents   Int
+  totalCents      Int
+  shippingService String
+  trackingCode    String?
+  addressSnapshot Json
+  mpPaymentId     String?     @unique
+  pixQrCode       String?
+  pixExpiresAt    DateTime?
+  createdAt       DateTime    @default(now())
+  store           Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer        Customer    @relation(fields: [customerId], references: [id], onDelete: NoAction)
+  items           OrderItem[]
+
+  @@index([storeId, status])
+  @@index([customerId])
+}
+
+model OrderItem {
+  id             String   @id @default(cuid())
+  storeId        String
+  orderId        String
+  variantId      String?
+  productName    String
+  sku            String
+  color          String
+  size           String
+  unitPriceCents Int
+  quantity       Int
+  store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant        Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([storeId])
+  @@index([orderId])
+  @@index([variantId])
+}
+
+model StoreSetting {
+  storeId String
+  key     String
+  value   String
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, key])
+}
