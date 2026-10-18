@@ -10,6 +10,7 @@ import { MemoryStorage, PNG } from "../../../../tests/fake-storage";
 vi.mock("@/auth", async (orig) => ({ ...(await orig<typeof import("@/auth")>()), getSession: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
 const storage = new MemoryStorage();
+vi.mock("node:dns/promises", () => ({ resolveCname: vi.fn(async () => ["cname.vercel-dns.com"]) }));
 vi.mock("@/integrations/storage", async (orig) => ({ ...(await orig<typeof import("@/integrations/storage")>()), getStorage: () => storage }));
 const auth = await import("@/auth");
 const nextHeaders = await import("next/headers");
@@ -23,6 +24,13 @@ const products = await import("./products/route");
 const productId = await import("./products/[id]/route");
 const variants = await import("./products/[id]/variants/route");
 const variantId = await import("./products/[id]/variants/[variantId]/route");
+const settings = await import("./settings/route");
+const credentials = await import("./credentials/route");
+const team = await import("./team/route");
+const teamId = await import("./team/[id]/route");
+const domain = await import("./domain/route");
+const domainVerify = await import("./domain/verify/route");
+const dns = vi.mocked(await import("node:dns/promises"));
 
 let tag: string;
 let planId: string;
@@ -38,6 +46,8 @@ let prodB: string;
 let varB: string;
 let ownerA: Session;
 let staffA: Session;
+let staffAId: string;
+let inviteEmail: string;
 let ownerB: Session;
 let master: Session;
 let customer: Session;
@@ -48,7 +58,7 @@ const session = (id: string, kind: "account" | "customer", extra = {}): Session 
 
 beforeEach(async () => {
   tag = Math.random().toString(36).slice(2, 8);
-  planId = (await prisma.plan.create({ data: { name: `T9a-${tag}`, priceCents: 1, staffLimit: 3, customDomain: false, advancedMetrics: false, csvExport: false } })).id;
+  planId = (await prisma.plan.create({ data: { name: `T9a-${tag}`, priceCents: 1, staffLimit: 3, customDomain: true, advancedMetrics: false, csvExport: false } })).id;
   const acc = async (k: string, isMaster = false) => {
     const a = await prisma.account.create({ data: { name: k, email: `${k}-${tag}@t.local`, passwordHash: "x", isMaster } });
     accountIds.push(a.id);
@@ -62,6 +72,10 @@ beforeEach(async () => {
   };
   storeA = await mk("a", [{ accountId: oa, role: "OWNER" }, { accountId: sa, role: "STAFF" }]);
   storeB = await mk("b", [{ accountId: ob, role: "OWNER" }]);
+  staffAId = sa;
+  await acc("inv");
+  inviteEmail = `inv-${tag}@t.local`;
+  await prisma.storeDomain.create({ data: { storeId: storeA, host: `dom-${tag}.com.br` } });
   hostA = `t9a-a-${tag}.localhost`;
   catA = (await dbForStore(storeA).category.create({ data: { storeId: storeA, name: "Cat A", slug: "cat-a" } })).id;
   catB = (await dbForStore(storeB).category.create({ data: { storeId: storeB, name: "Cat B", slug: "cat-b" } })).id;
@@ -91,7 +105,7 @@ afterEach(async () => {
 afterAll(() => prisma.$disconnect());
 
 type Handler = (req: Request, ctx: { params: Promise<{ id: string; variantId: string }> }) => Promise<Response>;
-type Case = { route: string; method: string; handler: Handler; body?: () => unknown; multipart?: () => FormData; id?: () => string; variantId?: () => string; ok: number };
+type Case = { route: string; method: string; handler: Handler; ownerOnly?: true; body?: () => unknown; multipart?: () => FormData; id?: () => string; variantId?: () => string; ok: number };
 const newProduct = () => ({
   name: "Nova Camiseta", categoryId: catA, weightGrams: 200, heightCm: 2, widthCm: 20, lengthCm: 30,
   variants: [{ color: "Azul", size: "M", sku: "nova-azul-m", priceCents: 5990, stock: 1 }],
@@ -117,6 +131,16 @@ const cases: Case[] = [
   { route: "products/[id]/variants", method: "POST", handler: variants.POST as Handler, id: () => prodA, ok: 201, body: () => ({ color: "Verde", size: "G", sku: "verde-g", priceCents: 100, stock: 1 }) },
   { route: "products/[id]/variants/[variantId]", method: "PATCH", handler: variantId.PATCH as Handler, id: () => prodA, variantId: () => varA1, ok: 200, body: () => ({ stock: 7 }) },
   { route: "products/[id]/variants/[variantId]", method: "DELETE", handler: variantId.DELETE as Handler, id: () => prodA, variantId: () => varA1, ok: 200 },
+  { route: "settings", method: "GET", handler: settings.GET as Handler, ok: 200 },
+  { route: "settings", method: "PATCH", handler: settings.PATCH as Handler, ok: 200, body: () => ({ originCep: "01310-100", pixDiscountPercent: 5 }) },
+  { route: "credentials", method: "GET", handler: credentials.GET as Handler, ok: 200, ownerOnly: true },
+  { route: "credentials", method: "PATCH", handler: credentials.PATCH as Handler, ok: 200, ownerOnly: true, body: () => ({ mpAccessToken: "APP_USR-segredo-tabela-1234" }) },
+  { route: "team", method: "GET", handler: team.GET as Handler, ok: 200, ownerOnly: true },
+  { route: "team", method: "POST", handler: team.POST as Handler, ok: 201, ownerOnly: true, body: () => ({ email: inviteEmail }) },
+  { route: "team/[id]", method: "DELETE", handler: teamId.DELETE as Handler, id: () => staffAId, ok: 200, ownerOnly: true },
+  { route: "domain", method: "GET", handler: domain.GET as Handler, ok: 200, ownerOnly: true },
+  { route: "domain", method: "PATCH", handler: domain.PATCH as Handler, ok: 200, ownerOnly: true, body: () => ({ host: `novo-${tag}.com.br` }) },
+  { route: "domain/verify", method: "POST", handler: domainVerify.POST as Handler, ok: 200, ownerOnly: true },
 ];
 
 // Host da loja A e Origin proprio por padrao (como o navegador no painel); valor undefined remove o header.
@@ -182,10 +206,10 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     const res = await call(c);
     expect(res.status, await res.clone().text()).toBe(c.ok);
   });
-  it.each(cases)("$method $route: colaborador (STAFF) passa", async (c) => {
+  it.each(cases)("$method $route: colaborador (STAFF) passa, exceto rotas so do dono (403)", async (c) => {
     getSession.mockResolvedValue(staffA);
     const res = await call(c);
-    expect(res.status, await res.clone().text()).toBe(c.ok);
+    expect(res.status, await res.clone().text()).toBe(c.ownerOnly ? 403 : c.ok);
   });
   it.each(cases)("$method $route: master passa (suporte)", async (c) => {
     getSession.mockResolvedValue(master);
@@ -374,6 +398,83 @@ describe("/api/admin/products: comportamento", () => {
     const list = await (await send("products", "GET", undefined, "", "", "?q=sku-a2&active=true")).json();
     expect(list).toMatchObject({ total: 1, page: 1, pageSize: 25, items: [{ id: prodA, variantCount: 2 }] });
     expect((await (await send("products", "GET", undefined, "", "", "?q=sku-b1")).json()).total).toBe(0);
+  });
+});
+
+describe("/api/admin: configuracoes, credenciais, equipe e dominio", () => {
+  const send = (route: string, method: string, body?: unknown, id = "") =>
+    call({ ...cases.find((x) => x.route === route && x.method === method)!, body: body === undefined ? undefined : () => body, id: () => id });
+  const res = async (r: Promise<Response>) => { const x = await r; return [x.status, (await x.json()).error]; };
+  const SECRET = "APP_USR-7777777777-segredo-de-verdade-QWER";
+
+  it("credenciais: nenhuma resposta (nem erro, nem log) contem o segredo", async () => {
+    getSession.mockResolvedValue(ownerA);
+    const logs: unknown[] = [];
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map((k) => vi.spyOn(console, k).mockImplementation((...a) => { logs.push(a); }));
+    try {
+      const texts: string[] = [];
+      // Em sequencia: a ordem importa (GET depois do primeiro PATCH).
+      for (const [method, body] of [
+        ["PATCH", { mpAccessToken: SECRET, mpWebhookSecret: SECRET }],
+        ["GET", undefined],
+        ["PATCH", { mpAccessToken: "", mpPublicKey: SECRET }],
+        ["PATCH", { mpAccessToken: SECRET.repeat(40) }],
+        ["PATCH", { mpAccessToken: SECRET, clear: ["naoExiste"] }],
+        ["PATCH", { mpAccessToken: 5, mpPublicKey: SECRET }],
+      ] as const) {
+        const r = await send("credentials", method, body);
+        texts.push(`${r.status} ${await r.text()}`);
+      }
+      expect(texts.map((t) => t.slice(0, 3))).toEqual(["200", "200", "200", "400", "400", "400"]);
+      for (const t of texts) expect(t).not.toContain(SECRET);
+      expect(JSON.parse(texts[1].slice(4))).toEqual({
+        mpAccessToken: { configured: true, last4: "QWER" }, mpPublicKey: { configured: false, last4: null },
+        mpWebhookSecret: { configured: true, last4: "QWER" }, melhorEnvioToken: { configured: false, last4: null },
+      });
+      expect(JSON.stringify(logs)).not.toContain(SECRET);
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+    const { getStoreCredentials } = await import("@/domain/storeSettings");
+    expect(await getStoreCredentials(storeA)).toEqual({ mpAccessToken: SECRET, mpWebhookSecret: SECRET, mpPublicKey: SECRET });
+    expect(JSON.stringify(await prisma.storeSetting.findMany({ where: { storeId: storeA } }))).not.toContain(SECRET);
+    const cleared = await (await send("credentials", "PATCH", { clear: ["mpPublicKey"] })).json();
+    expect(cleared.mpPublicKey).toEqual({ configured: false, last4: null });
+  });
+  it("configuracoes: STAFF altera; CEP/desconto invalidos 400; nao toca outra loja", async () => {
+    getSession.mockResolvedValue(staffA);
+    expect(await (await send("settings", "PATCH", { originCep: "01310-100" })).json()).toEqual({ originCep: "01310100", pixDiscountPercent: 0 });
+    expect(await res(send("settings", "PATCH", { originCep: "123" }))).toEqual([400, "CEP_INVALID"]);
+    expect(await res(send("settings", "PATCH", { pixDiscountPercent: 101 }))).toEqual([400, "PIX_DISCOUNT_INVALID"]);
+    expect((await send("settings", "PATCH", { pixDiscountPercent: "5" })).status).toBe(400);
+    expect(await (await send("settings", "GET")).json()).toEqual({ originCep: "01310100", pixDiscountPercent: 0 });
+    expect(await prisma.storeSetting.count({ where: { storeId: storeB } })).toBe(0);
+  });
+  it("equipe: conta inexistente 404 com mensagem; ja membro 409; limite 403; remover dono 400", async () => {
+    getSession.mockResolvedValue(ownerA);
+    const r = await send("team", "POST", { email: `ninguem-${tag}@t.local` });
+    expect([r.status, await r.json()]).toEqual([404, { error: "ACCOUNT_NOT_FOUND", message: "O usuário precisa se cadastrar primeiro" }]);
+    expect(await res(send("team", "POST", { email: `sa-${tag}@t.local` }))).toEqual([409, "ALREADY_MEMBER"]);
+    await prisma.plan.update({ where: { id: planId }, data: { staffLimit: 2 } });
+    expect(await res(send("team", "POST", { email: inviteEmail }))).toEqual([403, "PLAN_LIMIT"]);
+    expect(await res(send("team/[id]", "DELETE", undefined, ownerA.user.id))).toEqual([400, "CANNOT_REMOVE_SELF"]);
+    getSession.mockResolvedValue(master);
+    expect(await res(send("team/[id]", "DELETE", undefined, ownerA.user.id))).toEqual([400, "CANNOT_REMOVE_OWNER"]);
+    expect(await prisma.storeMember.count({ where: { storeId: storeA } })).toBe(2);
+  });
+  it("dominio: invalido 400, de outra loja 409, plano sem dominio 403; verificar usa o DNS", async () => {
+    getSession.mockResolvedValue(ownerA);
+    expect(await res(send("domain", "PATCH", { host: "https://x.com/a" }))).toEqual([400, "DOMAIN_INVALID"]);
+    expect(await res(send("domain", "PATCH", { host: `loja.${"localhost"}` }))).toEqual([400, "DOMAIN_INVALID"]);
+    await prisma.storeDomain.create({ data: { storeId: storeB, host: `b-${tag}.com` } });
+    expect(await res(send("domain", "PATCH", { host: `B-${tag}.com` }))).toEqual([409, "DOMAIN_TAKEN"]);
+    dns.resolveCname.mockResolvedValueOnce(["outro.example.com"]);
+    expect(await (await send("domain/verify", "POST")).json()).toMatchObject({ host: `dom-${tag}.com.br`, verified: false });
+    expect(await (await send("domain/verify", "POST")).json()).toMatchObject({ host: `dom-${tag}.com.br`, verified: true, cnameTarget: "cname.vercel-dns.com" });
+    expect(await (await send("domain", "PATCH", { host: `Nova-${tag}.com` })).json()).toMatchObject({ host: `nova-${tag}.com`, verified: false });
+    await prisma.plan.update({ where: { id: planId }, data: { customDomain: false } });
+    const r = await send("domain", "PATCH", { host: `outra-${tag}.com` });
+    expect([r.status, (await r.json()).code]).toEqual([403, "DOMAIN_NOT_ALLOWED"]);
   });
 });
 

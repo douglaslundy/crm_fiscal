@@ -17,7 +17,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         {soon("Pedidos")}
         {soon("Clientes")}
         <Link href="/admin/assinatura">Assinatura</Link>
-        {soon("Configurações")}
+        <Link href="/admin/configuracoes">Configurações</Link>
       </nav>
       <div style={{ padding: 16 }}>{children}</div>
     </div>

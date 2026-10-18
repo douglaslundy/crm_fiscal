@@ -30,6 +30,16 @@ const MESSAGES: Record<string, string> = {
   PARENT_CYCLE: "Uma categoria não pode ficar dentro dela mesma.",
   MAX_DEPTH: "No máximo 3 níveis de categorias.",
   STORE_SUSPENDED: "Loja suspensa: o painel está somente leitura.",
+  CEP_INVALID: "CEP inválido. Use 8 dígitos, ex.: 37175-000.",
+  PIX_DISCOUNT_INVALID: "O desconto no Pix deve ser um número inteiro de 0 a 100.",
+  ACCOUNT_NOT_FOUND: "O usuário precisa se cadastrar primeiro.",
+  ALREADY_MEMBER: "Este usuário já faz parte da equipe.",
+  MEMBER_NOT_FOUND: "Membro não encontrado.",
+  CANNOT_REMOVE_OWNER: "O dono da loja não pode ser removido.",
+  CANNOT_REMOVE_SELF: "Você não pode remover a si mesmo.",
+  DOMAIN_INVALID: "Domínio inválido. Informe só o endereço, ex.: www.minhaloja.com.br.",
+  DOMAIN_TAKEN: "Este domínio já está em uso por outra loja.",
+  DOMAIN_NOT_FOUND: "Cadastre um domínio antes de verificar.",
 };
 
 /** Formulario simples que envia JSON para uma rota /api/master ou /api/admin (paineis master e da loja) e atualiza (ou redireciona). */
@@ -65,7 +75,7 @@ export function MasterForm(p: {
     }
     if (res.ok) return p.redirectTo ? router.push(p.redirectTo) : router.refresh();
     const json = await res.json().catch(() => ({}));
-    setError(MESSAGES[json.error] ?? (res.status === 401 || res.status === 403 ? "Sem permissão." : "Não foi possível concluir. Confira os dados."));
+    setError(MESSAGES[json.error] ?? json.message ?? (res.status === 401 || res.status === 403 ? "Sem permissão." : "Não foi possível concluir. Confira os dados."));
   }
 
   return (

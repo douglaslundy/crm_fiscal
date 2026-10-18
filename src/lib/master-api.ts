@@ -9,6 +9,7 @@ import {
 } from "@/domain/categories";
 import { PlanLimitError, StoreNotFoundError, planLimitToHttp } from "@/domain/entitlements";
 import { ProductError } from "@/domain/products";
+import { SettingsError } from "@/domain/storeSettings";
 import { StoreSuspendedError } from "@/domain/subscription";
 import { PlanInUseError, PlanNameTakenError, PlanValidationError } from "@/domain/masterPlans";
 import { EmailExistsError, PasswordRequiredError, PlanNotFoundError, SlugInvalidError, SlugTakenError } from "@/domain/stores";
@@ -49,6 +50,7 @@ export async function parseBody<S extends z.ZodType>(req: Request, schema: S): P
 /** Erros de dominio conhecidos viram resposta; o resto sobe (500). */
 export function domainError(e: unknown): NextResponse {
   if (e instanceof ProductError) return err(e.status, e.code);
+  if (e instanceof SettingsError) return err(e.status, e.code, e.message === e.code ? undefined : { message: e.message });
   if (e instanceof z.ZodError) return err(400, "Dados inválidos.", { fields: z.flattenError(e).fieldErrors });
   if (e instanceof PlanLimitError) {
     const { status, body } = planLimitToHttp(e);
