@@ -2,15 +2,15 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { assertCanAddStaff, PlanLimitError } from "./entitlements";
 import { PlanNotFoundError } from "./stores";
-import { PlanInUseError, PlanNameTakenError, PlanValidationError, createPlan, deletePlan, setPlanActive, updatePlan } from "./masterPlans";
+import { PlanInUseError, PlanNameTakenError, PlanValidationError, type PlanInput, createPlan, deletePlan, setPlanActive, updatePlan } from "./masterPlans";
 
 let tag: string;
 const planIds: string[] = [];
 const storeIds: string[] = [];
 let n = 0;
 
-const base = () => ({ name: `T8p-${n++}-${tag}`, priceCents: 4900, productLimit: 100, staffLimit: 2, customDomain: false, advancedMetrics: false, csvExport: false });
-const mk = async (extra: Partial<ReturnType<typeof base>> = {}) => {
+const base = (): PlanInput => ({ name: `T8p-${n++}-${tag}`, priceCents: 4900, productLimit: 100, staffLimit: 2, customDomain: false, advancedMetrics: false, csvExport: false });
+const mk = async (extra: Partial<PlanInput> = {}) => {
   const p = await createPlan({ ...base(), ...extra });
   planIds.push(p.id);
   return p;

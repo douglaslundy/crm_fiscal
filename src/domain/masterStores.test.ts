@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { PasswordRequiredError, PlanNotFoundError, SlugInvalidError } from "./stores";
-import { changeStorePlan, createStoreAsMaster, reactivateStore, suspendStore, updateStore } from "./masterStores";
+import { changeStorePlan, createStoreAsMaster, listStores, reactivateStore, suspendStore, updateStore } from "./masterStores";
 import { applyBillingEvent, evaluateStoreLifecycle } from "./subscription";
 import { StoreNotFoundError } from "./entitlements";
 
@@ -150,5 +150,30 @@ describe("suspend / reactivate / changePlan / update", () => {
     await holder;
     await p;
     expect((await store(a.id)).status).toBe("SUSPENDED");
+  });
+});
+
+describe("listStores", () => {
+  it("filtra por status, plano, busca (nome, slug, e-mail do dono) e pagina em 25", async () => {
+    const a = await create({ storeName: `Alfa ${tag}`, startMode: "active" });
+    const b = await create({ planId: otherPlanId });
+    await suspendStore(b.store.id);
+    const ids = (r: Awaited<ReturnType<typeof listStores>>) => r.stores.map((s) => s.id);
+    expect(ids(await listStores({ q: `alfa ${tag}` }))).toEqual([a.store.id]);
+    expect(ids(await listStores({ q: b.store.slug.toUpperCase() }))).toEqual([b.store.id]);
+    expect(ids(await listStores({ q: b.account.email }))).toEqual([b.store.id]);
+    expect(ids(await listStores({ planId: otherPlanId }))).toEqual([b.store.id]);
+    expect(ids(await listStores({ planId: otherPlanId, status: "ACTIVE" }))).toEqual([]);
+    const r = await listStores({ q: tag, status: "SUSPENDED" });
+    expect(r.stores[0]).toMatchObject({ planName: `T8m-b-${tag}`, ownerEmail: b.account.email, status: "SUSPENDED" });
+    expect(r.total).toBe(1);
+
+    const extra = Array.from({ length: 26 }, (_, i) => `t8m-pg${i}-${tag}`);
+    slugs.push(...extra);
+    await prisma.store.createMany({ data: extra.map((slug) => ({ slug, name: slug, planId: otherPlanId })) });
+    const p1 = await listStores({ planId: otherPlanId });
+    const p2 = await listStores({ planId: otherPlanId, page: 2 });
+    expect([p1.total, p1.stores.length, p2.stores.length]).toEqual([27, 25, 2]);
+    expect(new Set([...ids(p1), ...ids(p2)]).size).toBe(27);
   });
 });

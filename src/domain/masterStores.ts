@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient, StoreStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { StoreNotFoundError } from "./entitlements";
 import { PlanNotFoundError, createStore, type CreateStoreInput } from "./stores";
@@ -45,3 +45,37 @@ export const updateStore = (storeId: string, data: { name?: string }) =>
   locked(storeId, async (tx) => {
     await tx.store.update({ where: { id: storeId }, data: { name: data.name } });
   });
+
+export type StoreFilters = { status?: StoreStatus; planId?: string; q?: string; page?: number };
+export const PAGE_SIZE = 25;
+
+/** Lista paginada (25/pagina) com busca por nome, slug ou e-mail do dono. */
+export async function listStores(f: StoreFilters) {
+  const q = f.q?.trim();
+  const where: Prisma.StoreWhereInput = {
+    ...(f.status && { status: f.status }),
+    ...(f.planId && { planId: f.planId }),
+    ...(q && {
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { slug: { contains: q, mode: "insensitive" } },
+        { members: { some: { role: "OWNER", account: { email: { contains: q, mode: "insensitive" } } } } },
+      ],
+    }),
+  };
+  const page = Math.max(1, Math.floor(f.page ?? 1) || 1);
+  const [total, rows] = await Promise.all([
+    prisma.store.count({ where }),
+    prisma.store.findMany({
+      where, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
+      include: { plan: { select: { name: true } }, members: { where: { role: "OWNER" }, select: { account: { select: { email: true } } } } },
+    }),
+  ]);
+  return {
+    page, total, pageSize: PAGE_SIZE,
+    stores: rows.map((s) => ({
+      id: s.id, slug: s.slug, name: s.name, status: s.status, planName: s.plan.name,
+      ownerEmail: s.members[0]?.account.email ?? null, trialEndsAt: s.trialEndsAt, createdAt: s.createdAt,
+    })),
+  };
+}

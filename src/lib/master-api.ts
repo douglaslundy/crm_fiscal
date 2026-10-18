@@ -1,0 +1,53 @@
+import { NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { notFound } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { z } from "zod";
+import { getSession } from "@/auth";
+import { StoreNotFoundError } from "@/domain/entitlements";
+import { PlanInUseError, PlanNameTakenError, PlanValidationError } from "@/domain/masterPlans";
+import { PasswordRequiredError, PlanNotFoundError, SlugInvalidError, SlugTakenError } from "@/domain/stores";
+import { STORE_HOST_HEADER } from "./host";
+import { requireMaster } from "./guards";
+
+export const err = (status: number, error: string, extra?: object) => NextResponse.json({ error, ...extra }, { status });
+
+/** Pagina /master: so no host da plataforma (404 em host de loja) e so master (requireMaster redireciona para /entrar). */
+export async function masterPage() {
+  if ((await headers()).get(STORE_HOST_HEADER)) notFound();
+  return requireMaster();
+}
+
+/**
+ * Route handler /api/master/**: devolve a resposta de recusa ou null. Host de loja 404; sem sessao 401; sessao que
+ * nao e de conta master (cliente, lojista) 403. A decisao final e sempre de requireMaster() (relido do banco).
+ */
+export async function denyUnlessMaster(req: Request): Promise<NextResponse | null> {
+  if (req.headers.get(STORE_HOST_HEADER)) return err(404, "Não encontrado.");
+  if (!(await getSession())) return err(401, "Não autenticado.");
+  try {
+    await requireMaster();
+    return null;
+  } catch (e) {
+    if (isRedirectError(e)) return err(403, "Acesso negado.");
+    throw e;
+  }
+}
+
+export async function parseBody<S extends z.ZodType>(req: Request, schema: S): Promise<{ data: z.infer<S> } | { res: NextResponse }> {
+  const parsed = schema.safeParse(await req.json().catch(() => null));
+  return parsed.success ? { data: parsed.data } : { res: err(400, "Dados inválidos.", { fields: z.flattenError(parsed.error).fieldErrors }) };
+}
+
+/** Erros de dominio conhecidos viram resposta; o resto sobe (500). */
+export function domainError(e: unknown): NextResponse {
+  if (e instanceof StoreNotFoundError) return err(404, "STORE_NOT_FOUND");
+  if (e instanceof PlanNotFoundError) return err(404, "PLAN_NOT_FOUND");
+  if (e instanceof SlugTakenError) return err(409, "SLUG_TAKEN");
+  if (e instanceof PlanNameTakenError) return err(409, "PLAN_NAME_TAKEN");
+  if (e instanceof PlanInUseError) return err(409, "PLAN_IN_USE");
+  if (e instanceof SlugInvalidError) return err(400, "SLUG_INVALID");
+  if (e instanceof PasswordRequiredError) return err(400, "PASSWORD_REQUIRED");
+  if (e instanceof PlanValidationError) return err(400, "PLAN_INVALID");
+  throw e;
+}
