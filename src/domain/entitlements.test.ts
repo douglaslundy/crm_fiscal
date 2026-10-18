@@ -72,6 +72,40 @@ describe("produtos", () => {
     await expect(assertCanAddProduct(b)).resolves.toBeUndefined();
   });
 
+  it("com tx + lockStore: N criacoes simultaneas no limite-1 -> so uma passa", async () => {
+    const s = await newStore("start");
+    await addProducts(s, 49);
+    const db = dbForStore(s);
+    const results = await Promise.allSettled(Array.from({ length: 6 }, (_, i) =>
+      db.$transaction(async (tx) => {
+        await assertCanAddProduct(s, tx);
+        return tx.product.create({ data: { storeId: s, slug: `race-${i}`, name: "r", weightGrams: 1, heightCm: 1, widthCm: 1, lengthCm: 1 } });
+      }, { lockStore: true })));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(rejected).toHaveLength(5);
+    for (const r of rejected) expect(r.reason).toMatchObject({ name: "PlanLimitError", code: "PRODUCT_LIMIT", limit: 50 });
+    expect(await db.product.count()).toBe(50);
+  });
+
+  it("tx conta pelo cliente recebido (escrita ainda nao confirmada conta)", async () => {
+    const s = await newStore("start");
+    await addProducts(s, 49);
+    const db = dbForStore(s);
+    const e = await limitErr(db.$transaction(async (tx) => {
+      await tx.product.create({ data: { storeId: s, slug: "in-tx", name: "r", weightGrams: 1, heightCm: 1, widthCm: 1, lengthCm: 1 } });
+      await assertCanAddProduct(s, tx);
+    }));
+    expect(e).toMatchObject({ code: "PRODUCT_LIMIT" });
+    expect(await db.product.count()).toBe(49);
+  });
+
+  it("assertCanAddStaff aceita cliente de transacao", async () => {
+    const s = await newStore("start");
+    await addMembers(s, 1);
+    expect(await limitErr(prisma.$transaction((tx) => assertCanAddStaff(s, tx)))).toMatchObject({ code: "STAFF_LIMIT" });
+  });
+
   it("trocar Start -> Pro libera sem recriar dados", async () => {
     const s = await newStore("start");
     await addProducts(s, 50);

@@ -21,15 +21,20 @@ async function planOf(storeId: string) {
   return store.plan;
 }
 
-export async function assertCanAddProduct(storeId: string): Promise<void> {
+// Cliente de transacao (so o que a checagem usa). Sem ele a checagem e so consultiva: checar e inserir em
+// dbForStore(id).$transaction(tx => ..., { lockStore: true }) e o que impede duas criacoes simultaneas passarem do limite.
+export type ProductCountTx = { product: { count(): Promise<number> } };
+export type StaffCountTx = { storeMember: { count(args: { where: { storeId: string } }): Promise<number> } };
+
+export async function assertCanAddProduct(storeId: string, tx?: ProductCountTx): Promise<void> {
   const { productLimit } = await planOf(storeId);
   if (productLimit === null) return;
-  if ((await dbForStore(storeId).product.count()) >= productLimit) throw new PlanLimitError("PRODUCT_LIMIT", productLimit);
+  if ((await (tx ?? dbForStore(storeId)).product.count()) >= productLimit) throw new PlanLimitError("PRODUCT_LIMIT", productLimit);
 }
 
-export async function assertCanAddStaff(storeId: string): Promise<void> {
+export async function assertCanAddStaff(storeId: string, tx?: StaffCountTx): Promise<void> {
   const { staffLimit } = await planOf(storeId);
-  if ((await prisma.storeMember.count({ where: { storeId } })) >= staffLimit) throw new PlanLimitError("STAFF_LIMIT", staffLimit);
+  if ((await (tx ?? prisma).storeMember.count({ where: { storeId } })) >= staffLimit) throw new PlanLimitError("STAFF_LIMIT", staffLimit);
 }
 
 export async function assertCanUseCustomDomain(storeId: string): Promise<void> {
