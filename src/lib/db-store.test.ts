@@ -138,6 +138,55 @@ describe("dbForStore: escrita", () => {
   });
 });
 
+describe("dbForStore: correcoes da revisao", () => {
+  it("delegates nao expoem $parent (cliente base) nem props alem das operacoes", async () => {
+    const db = dbForStore(A);
+    const ops = [
+      "aggregate", "count", "create", "createMany", "createManyAndReturn", "delete", "deleteMany", "findFirst",
+      "findFirstOrThrow", "findMany", "findUnique", "findUniqueOrThrow", "groupBy", "update", "updateMany",
+      "updateManyAndReturn", "upsert",
+    ];
+    const check = (m: object) => {
+      expect((m as Record<string, unknown>).$parent).toBeUndefined();
+      expect(Object.getOwnPropertyNames(m).sort()).toEqual(ops);
+      expect(Object.getPrototypeOf(m)).toBe(Object.prototype);
+    };
+    check(db.product);
+    await db.$transaction(async (tx) => check(tx.product));
+  });
+  it("relacao store em objeto sem prototipo tambem e rejeitada", async () => {
+    const bare = () => Object.assign(Object.create(null), { store: true });
+    const db = dbForStore(A);
+    await expect(db.product.findMany({ include: bare() })).rejects.toThrow(/store/);
+    await expect(db.product.findMany({ select: bare() })).rejects.toThrow(/store/);
+    await expect(db.product.findMany({ where: Object.assign(Object.create(null), { store: { slug: "x" } }) })).rejects.toThrow(/store/);
+    await expect(db.product.findMany({ orderBy: Object.assign(Object.create(null), { store: { slug: "asc" } }) })).rejects.toThrow(/store/);
+    await expect(db.product.findMany({ include: { category: bare() } } as never)).rejects.toThrow(/store/);
+  });
+  it("cursor de outra loja nao revela ordenacao; paginacao propria funciona", async () => {
+    for (const s of ["pc1", "pc2", "pc3"]) await prisma.product.create({ data: product(A, s) });
+    const db = dbForStore(A);
+    expect(await db.product.findMany({ cursor: { id: prodB }, orderBy: { id: "asc" } })).toEqual([]);
+    expect(await db.product.findMany({ cursor: { id: prodB }, orderBy: { id: "desc" } })).toEqual([]);
+    const all = (await db.product.findMany({ orderBy: { id: "asc" } })).map((p) => p.id);
+    expect(all).toHaveLength(4);
+    const page = await db.product.findMany({ cursor: { id: all[1] }, skip: 1, take: 2, orderBy: { id: "asc" } });
+    expect(page.map((p) => p.id)).toEqual(all.slice(2, 4));
+  });
+  it("getter de storeId que muda entre leituras nao burla a checagem", async () => {
+    const flip = (first: string, then: string) => {
+      let n = 0;
+      return { name: "g", get storeId() { return n++ === 0 ? first : then; } };
+    };
+    await dbForStore(A).product.update({ where: { id: prodA }, data: flip(A, B) as never });
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: prodA } })).storeId).toBe(A);
+    await dbForStore(A).product.updateMany({ data: flip(A, B) as never });
+    expect(await prisma.product.count({ where: { storeId: B } })).toBe(1);
+    await expect(dbForStore(A).product.update({ where: { id: prodA }, data: flip(B, A) as never })).rejects.toThrow(/outra loja/);
+    await expect(dbForStore(A).product.create({ data: { ...product(A, "gx"), ...flip(A, B) } as never })).resolves.toMatchObject({ storeId: A });
+  });
+});
+
 describe("dbForStore: superficie", () => {
   it("nao expoe modelos de plataforma nem SQL bruto", () => {
     const db = dbForStore(A) as unknown as Record<string, unknown>;

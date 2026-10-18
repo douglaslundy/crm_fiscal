@@ -35,13 +35,25 @@ const UPDATE_OPS = new Set(["update", "updateMany", "updateManyAndReturn", "upse
 const KNOWN_OPS = new Set([...WHERE_OPS, ...CREATE_OPS]);
 
 type Args = Record<string, unknown>;
-const isPlain = (v: unknown): v is Args => !!v && Object.getPrototypeOf(v) === Object.prototype;
+const isPlain = (v: unknown): v is Args =>
+  typeof v === "object" && v !== null && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 const list = (v: unknown) => (Array.isArray(v) ? v : v === undefined ? [] : [v]);
+const LEAF_TYPES = [Date, Prisma.Decimal, Uint8Array, ...Object.values(Prisma.NullTypes)];
+
+// Copia profunda em objetos simples: cada getter e lido uma vez, e checagem e uso veem o mesmo valor.
+// Objetos de classe fora da lista sao recusados (falha fechada: nao sabemos como o Prisma os le).
+function snapshot(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(snapshot);
+  if (typeof v !== "object" || v === null) return v;
+  if (isPlain(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, snapshot(x)]));
+  if (LEAF_TYPES.some((T) => v instanceof T)) return v;
+  throw new StoreScopeError("Argumento de tipo nao suportado no cliente da loja");
+}
 
 // A relacao `store` leva a Store -> Plan -> stores (todas as lojas): bloqueada em leitura e filtro.
 function rejectStoreRelation(v: unknown): void {
   if (Array.isArray(v)) return v.forEach(rejectStoreRelation);
-  if (!isPlain(v)) return;
+  if (typeof v !== "object" || v === null) return;
   for (const [k, inner] of Object.entries(v)) {
     if (k === "store") throw new StoreScopeError("Relacao `store` nao e acessivel pelo cliente da loja; use getCurrentStore()");
     rejectStoreRelation(inner);
@@ -65,14 +77,16 @@ function checkData(storeId: string, model: string, data: unknown, isCreate: bool
 function scopeArgs(storeId: string, model: string, operation: string, raw: unknown): Args {
   if (!STORE_MODELS.includes(model as never)) throw new StoreScopeError(`Modelo ${model} nao e de loja`);
   if (!KNOWN_OPS.has(operation)) throw new StoreScopeError(`Operacao ${operation} nao suportada no cliente da loja`);
-  const args: Args = { ...((raw as Args) ?? {}) };
-  for (const k of ["where", "include", "select", "orderBy", "having"]) rejectStoreRelation(args[k]);
+  const args = snapshot(raw ?? {}) as Args;
+  for (const k of ["where", "include", "select", "orderBy", "having", "cursor"]) rejectStoreRelation(args[k]);
 
   if (WHERE_OPS.has(operation)) {
     // Spread + AND vale tambem para WhereUniqueInput (filtros extras sao aceitos desde o Prisma 5).
     const where = (args.where as Args | undefined) ?? {};
     args.where = { ...where, AND: [...list(where.AND), { storeId }] };
   }
+  // Cursor de outra loja nao casa: a pagina sai vazia em vez de revelar a posicao da linha alheia.
+  if (args.cursor) args.cursor = { ...(args.cursor as Args), storeId };
   if (operation === "upsert") {
     args.create = checkData(storeId, model, args.create, true);
     args.update = checkData(storeId, model, args.update, false);
@@ -96,10 +110,21 @@ function extend(storeId: string) {
   });
 }
 
-type Scoped = Pick<ReturnType<typeof extend>, StoreModelKey>;
+type Ext = ReturnType<typeof extend>;
+type Op = "findUnique" | "findUniqueOrThrow" | "findFirst" | "findFirstOrThrow" | "findMany" | "count" | "aggregate"
+  | "groupBy" | "create" | "createMany" | "createManyAndReturn" | "update" | "updateMany" | "updateManyAndReturn"
+  | "upsert" | "delete" | "deleteMany";
+type Scoped = { [K in StoreModelKey]: Pick<Ext[K], Op & keyof Ext[K]> };
 export type StoreDb = Scoped & { $transaction<T>(fn: (tx: Scoped) => Promise<T>): Promise<T> };
 
-const pick = (c: Scoped) => Object.fromEntries(KEYS.map((k) => [k, c[k]])) as Scoped;
+// So funcoes novas por operacao: o delegate do Prisma tem `$parent` (cliente base, sem escopo).
+const pick = (c: Pick<Ext, StoreModelKey>) =>
+  Object.fromEntries(
+    KEYS.map((k) => {
+      const d = c[k] as unknown as Record<string, (a: unknown) => unknown>;
+      return [k, Object.fromEntries([...KNOWN_OPS].map((op) => [op, (a: unknown) => d[op](a)]))];
+    }),
+  ) as unknown as Scoped;
 
 /** Cliente escopado a uma loja: so modelos de loja, sem SQL bruto nem modelos de plataforma. */
 export function dbForStore(storeId: string): StoreDb {
