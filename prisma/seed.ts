@@ -37,6 +37,7 @@ export async function seed(prisma: PrismaClient) {
     create: { email, name: "Master", isMaster: true, passwordHash: await bcrypt.hash(password, 10) },
   });
 
+  // Sobrescreve valores do plano de proposito: planos sao canonicos ate existir a UI do master.
   for (const p of PLANS) {
     await prisma.plan.upsert({ where: { name: p.name }, update: p, create: p });
   }

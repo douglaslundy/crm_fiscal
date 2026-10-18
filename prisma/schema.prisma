@@ -130,6 +130,7 @@ model Customer {
   orders       Order[]
 
   @@unique([storeId, email])
+  @@unique([storeId, id])
 }
 
 model Address {
@@ -144,7 +145,7 @@ model Address {
   city       String
   state      String
   store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [storeId, customerId], references: [storeId, id], onDelete: Cascade)
 
   @@index([storeId])
   @@index([customerId])
@@ -157,11 +158,12 @@ model Category {
   slug     String
   name     String
   store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  parent   Category?  @relation("CategoryTree", fields: [storeId, parentId], references: [storeId, id], onDelete: NoAction)
   children Category[] @relation("CategoryTree")
   products Product[]
 
   @@unique([storeId, slug])
+  @@unique([storeId, id])
   @@index([parentId])
 }
 
@@ -179,11 +181,12 @@ model Product {
   active      Boolean        @default(true)
   createdAt   DateTime       @default(now())
   store       Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  category    Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  category    Category?      @relation(fields: [storeId, categoryId], references: [storeId, id], onDelete: NoAction)
   images      ProductImage[]
   variants    Variant[]
 
   @@unique([storeId, slug])
+  @@unique([storeId, id])
   @@index([categoryId])
 }
 
@@ -195,13 +198,17 @@ model ProductImage {
   color     String?
   position  Int     @default(0)
   store     Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [storeId, productId], references: [storeId, id], onDelete: Cascade)
 
   @@index([storeId])
   @@index([productId])
 }
 
 // CHECK (stock >= 0) vive no SQL da migration (Prisma nao expressa).
+// FKs filhos sao compostos (storeId, pai) -> (storeId, id): o banco impede referencia entre lojas.
+// FKs opcionais compostos (Product.categoryId, OrderItem.variantId, Category.parentId) usam NoAction:
+// SetNull tentaria anular storeId (NOT NULL). Consequencia: Variant com historico de pedidos nao
+// pode ser apagada (use active=false) e Category com produtos/filhas nao pode ser apagada.
 model Variant {
   id         String      @id @default(cuid())
   storeId    String
@@ -213,11 +220,12 @@ model Variant {
   stock      Int         @default(0)
   active     Boolean     @default(true)
   store      Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [storeId, productId], references: [storeId, id], onDelete: Cascade)
   orderItems OrderItem[]
 
   @@unique([storeId, sku])
   @@unique([productId, color, size])
+  @@unique([storeId, id])
 }
 
 model Order {
@@ -236,9 +244,11 @@ model Order {
   pixExpiresAt    DateTime?
   createdAt       DateTime    @default(now())
   store           Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  customer        Customer    @relation(fields: [customerId], references: [id], onDelete: NoAction)
+  // NoAction de proposito: historico de pedidos protegido (cliente com pedidos nao e apagado).
+  customer        Customer    @relation(fields: [storeId, customerId], references: [storeId, id], onDelete: NoAction)
   items           OrderItem[]
 
+  @@unique([storeId, id])
   @@index([storeId, status])
   @@index([customerId])
 }
@@ -255,8 +265,8 @@ model OrderItem {
   unitPriceCents Int
   quantity       Int
   store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  variant        Variant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  order          Order    @relation(fields: [storeId, orderId], references: [storeId, id], onDelete: Cascade)
+  variant        Variant? @relation(fields: [storeId, variantId], references: [storeId, id], onDelete: NoAction)
 
   @@index([storeId])
   @@index([orderId])
