@@ -18,6 +18,7 @@ const MESSAGES: Record<string, string> = {
   SLUG_INVALID: "Endereço inválido ou reservado.",
   PASSWORD_REQUIRED: "Conta nova exige senha de pelo menos 8 caracteres.",
   PLAN_NOT_FOUND: "Plano inexistente ou inativo.",
+  EMAIL_EXISTS: "Este e-mail acabou de ser cadastrado. Tente novamente.",
   PLAN_NAME_TAKEN: "Já existe um plano com este nome.",
   PLAN_IN_USE: "Plano em uso por lojas: desative em vez de excluir.",
   PLAN_INVALID: "Dados do plano inválidos.",
@@ -46,8 +47,15 @@ export function MasterForm(p: {
     }
     setBusy(true);
     setError("");
-    const res = await fetch(p.url, { method: p.method ?? "POST", headers: { "content-type": "application/json" }, body: p.method === "DELETE" ? undefined : JSON.stringify(body) });
-    setBusy(false);
+    let res: Response;
+    try {
+      res = await fetch(p.url, { method: p.method ?? "POST", headers: { "content-type": "application/json" }, body: p.method === "DELETE" ? undefined : JSON.stringify(body) });
+    } catch {
+      setError("Falha de conexão. Tente novamente.");
+      return;
+    } finally {
+      setBusy(false);
+    }
     if (res.ok) return p.redirectTo ? router.push(p.redirectTo) : router.refresh();
     const json = await res.json().catch(() => ({}));
     setError(MESSAGES[json.error] ?? (res.status === 401 || res.status === 403 ? "Sem permissão." : "Não foi possível concluir. Confira os dados."));

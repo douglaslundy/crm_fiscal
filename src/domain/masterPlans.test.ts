@@ -7,6 +7,7 @@ import { PlanInUseError, PlanNameTakenError, PlanValidationError, type PlanInput
 let tag: string;
 const planIds: string[] = [];
 const storeIds: string[] = [];
+const accountIds: string[] = [];
 let n = 0;
 
 const base = (): PlanInput => ({ name: `T8p-${n++}-${tag}`, priceCents: 4900, productLimit: 100, staffLimit: 2, customDomain: false, advancedMetrics: false, csvExport: false });
@@ -19,6 +20,7 @@ const mk = async (extra: Partial<PlanInput> = {}) => {
 beforeEach(() => { tag = Math.random().toString(36).slice(2, 8); });
 afterEach(async () => {
   await prisma.store.deleteMany({ where: { id: { in: storeIds.splice(0) } } });
+  await prisma.account.deleteMany({ where: { id: { in: accountIds.splice(0) } } });
   await prisma.plan.deleteMany({ where: { id: { in: planIds.splice(0) } } });
 });
 afterAll(() => prisma.$disconnect());
@@ -31,6 +33,13 @@ describe("createPlan", () => {
   it("nome unico (case exato do banco)", async () => {
     const p = await mk();
     await expect(createPlan({ ...base(), name: p.name })).rejects.toBeInstanceOf(PlanNameTakenError);
+  });
+  it("nome unico sem diferenciar maiusculas/espacos, na criacao e na edicao", async () => {
+    const p = await mk({ name: `Pro-${tag}` });
+    await expect(createPlan({ ...base(), name: `  pRO-${tag} ` })).rejects.toBeInstanceOf(PlanNameTakenError);
+    const other = await mk();
+    await expect(updatePlan(other.id, { name: `PRO-${tag}` })).rejects.toBeInstanceOf(PlanNameTakenError);
+    await expect(updatePlan(p.id, { name: `PRO-${tag}` })).resolves.toMatchObject({ name: `PRO-${tag}` }); // o proprio plano pode mudar a caixa
   });
   it.each([
     ["nome vazio", { name: "  " }],
@@ -65,11 +74,11 @@ describe("updatePlan / setPlanActive / deletePlan", () => {
     const s = await prisma.store.create({ data: { slug: `t8p-${tag}`, name: "x", planId: p.id } });
     storeIds.push(s.id);
     const acc = await prisma.account.create({ data: { name: "a", email: `a-${tag}@t.local`, passwordHash: "x" } });
+    accountIds.push(acc.id);
     await prisma.storeMember.create({ data: { storeId: s.id, accountId: acc.id, role: "OWNER" } });
     await expect(assertCanAddStaff(s.id)).rejects.toBeInstanceOf(PlanLimitError);
     await updatePlan(p.id, { staffLimit: 3 });
     await expect(assertCanAddStaff(s.id)).resolves.toBeUndefined();
-    await prisma.account.delete({ where: { id: acc.id } });
   });
 
   it("desativa e reativa", async () => {

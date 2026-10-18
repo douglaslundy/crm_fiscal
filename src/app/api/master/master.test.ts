@@ -79,22 +79,33 @@ const cases: Case[] = [
   { route: "plans/[id]", method: "DELETE", handler: planId.DELETE as Handler, id: () => planDel, ok: 200 },
 ];
 
-const call = (c: Case, extraHeaders: Record<string, string> = {}) =>
-  c.handler(
-    new Request("http://localhost/api/master/x", { method: c.method, headers: { "content-type": "application/json", ...extraHeaders }, body: c.body ? JSON.stringify(c.body()) : undefined }),
+// Origin proprio por padrao (como um navegador na pagina do painel); valor undefined remove o header.
+const call = (c: Case, extraHeaders: Record<string, string | undefined> = {}) => {
+  const headers = Object.entries({ "content-type": "application/json", origin: "http://localhost", ...extraHeaders }).filter((e): e is [string, string] => e[1] !== undefined);
+  return c.handler(
+    new Request("http://localhost/api/master/x", { method: c.method, headers, body: c.body ? JSON.stringify(c.body()) : undefined }),
     { params: Promise.resolve({ id: c.id?.() ?? "" }) },
   );
+};
 const label = (c: Case) => `${c.method} /api/master/${c.route}`;
 
 describe("/api/master: todas as rotas exigem master", () => {
   it("a tabela cobre todos os route.ts (e todos os metodos exportados) de src/app/api/master", () => {
     const root = join(process.cwd(), "src/app/api/master");
     const found: string[] = [];
+    const VERB = "GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS";
     const walk = (d: string) => readdirSync(d).forEach((f) => {
       const p = join(d, f);
       if (statSync(p).isDirectory()) return walk(p);
-      if (f !== "route.ts") return;
-      const methods = [...readFileSync(p, "utf8").matchAll(/export async function (GET|POST|PATCH|PUT|DELETE)\b/g)].map((m) => m[1]);
+      if (!/^route\.[cm]?[jt]sx?$/.test(f)) return;
+      expect(f, `${p}: use route.ts`).toBe("route.ts");
+      const src = readFileSync(p, "utf8");
+      const methods = new Set([
+        ...[...src.matchAll(new RegExp(String.raw`export\s+(?:async\s+)?function\s+(${VERB})\b`, "g"))].map((m) => m[1]),
+        ...[...src.matchAll(new RegExp(String.raw`export\s+(?:const|let|var)\s+(${VERB})\b`, "g"))].map((m) => m[1]),
+        ...[...src.matchAll(/export\s*\{([^}]*)\}/g)].flatMap((m) => [...m[1].matchAll(new RegExp(String.raw`(?:\bas\s+)?\b(${VERB})\b`, "g"))].map((x) => x[1])),
+      ]);
+      expect(src, `${p}: re-export de verbo nao suportado pelo scan`).not.toMatch(/export\s*\*\s*from/);
       const dir = relative(root, d).split(sep).join("/");
       methods.forEach((m) => found.push(`${m} ${dir}`));
     });
@@ -126,6 +137,37 @@ describe("/api/master: todas as rotas exigem master", () => {
     getSession.mockResolvedValue(master);
     const res = await call(c);
     expect(res.status, label(c) + " " + (await res.clone().text())).toBe(c.ok);
+  });
+
+  const mutating = cases.filter((c) => c.method !== "GET");
+  it.each(mutating)("$method $route: CSRF, Origin estrangeiro 403", async (c) => {
+    getSession.mockResolvedValue(master);
+    expect((await call(c, { origin: "https://evil.example" })).status).toBe(403);
+  });
+  it.each(mutating)("$method $route: CSRF, sem Origin e Sec-Fetch-Site cross-site 403", async (c) => {
+    getSession.mockResolvedValue(master);
+    expect((await call(c, { origin: undefined, "sec-fetch-site": "cross-site" })).status).toBe(403);
+  });
+  it.each(mutating)("$method $route: CSRF, sem Origin e sem Sec-Fetch-Site 403", async (c) => {
+    getSession.mockResolvedValue(master);
+    expect((await call(c, { origin: undefined })).status).toBe(403);
+  });
+  it.each(mutating)("$method $route: sem Origin mas Sec-Fetch-Site same-origin passa", async (c) => {
+    getSession.mockResolvedValue(master);
+    expect((await call(c, { origin: undefined, "sec-fetch-site": "same-origin" })).status).toBe(c.ok);
+  });
+  it.each(mutating.filter((c) => c.body))("$method $route: corpo text/plain 403", async (c) => {
+    getSession.mockResolvedValue(master);
+    expect((await call(c, { "content-type": "text/plain" })).status).toBe(403);
+  });
+  it.each(mutating)("$method $route: anonimo com Origin estrangeiro recebe 401 (auth antes de CSRF)", async (c) => {
+    getSession.mockResolvedValue(null);
+    expect((await call(c, { origin: "https://evil.example" })).status).toBe(401);
+  });
+  it("CSRF recusado nao executa a acao", async () => {
+    getSession.mockResolvedValue(master);
+    await call(cases.find((c) => c.route === "stores/[id]/suspend")!, { origin: "https://evil.example" });
+    expect((await prisma.store.findUniqueOrThrow({ where: { id: storeA } })).status).toBe("ACTIVE");
   });
 
   it("recusas nao executam a acao", async () => {
@@ -175,6 +217,21 @@ describe("/api/master: comportamento", () => {
     expect(m.signupsByDay).toHaveLength(30);
     expect(m.activeStores).toBeGreaterThanOrEqual(1);
   });
+  it.each([
+    "status=constructor", "status=__proto__", "status=active", "page=Infinity", "page=1e12", "page=NaN", "page=-1", "page=0", "page=1.5", "page=abc", "planId=" + encodeURIComponent("a b;'--"),
+  ])("GET /stores?%s -> 400 (nunca 500)", async (qs) => {
+    const res = await stores.GET(new Request(`http://localhost/api/master/stores?${qs}`));
+    expect(res.status).toBe(400);
+  });
+  it("GET /stores com page valida alem do fim devolve lista vazia; filtros vazios sao ignorados", async () => {
+    expect((await (await stores.GET(new Request("http://localhost/api/master/stores?page=99999"))).json()).stores).toEqual([]);
+    expect((await stores.GET(new Request("http://localhost/api/master/stores?status=&planId=&q=&page="))).status).toBe(200);
+  });
+  it("EmailExistsError de corrida vira 409", async () => {
+    const { EmailExistsError } = await import("@/domain/stores");
+    const { domainError } = await import("@/lib/master-api");
+    expect(domainError(new EmailExistsError("x")).status).toBe(409);
+  });
 });
 
 describe("paginas /master", () => {
@@ -208,5 +265,17 @@ describe("paginas /master", () => {
       const src = readFileSync(p, "utf8");
       expect(src, p).toMatch(/export default async function \w+\([^)]*\)\s*\{\s*await masterPage\(\)/);
     }
+  });
+
+  it("nenhum arquivo de src/app/master ou src/app/api/master usa 'use server' (server action pularia o guard da pagina)", () => {
+    const hits: string[] = [];
+    const walk = (d: string) => readdirSync(d).forEach((f) => {
+      const p = join(d, f);
+      if (statSync(p).isDirectory()) return walk(p);
+      if (/use server/.test(readFileSync(p, "utf8")) && f !== "master.test.ts") hits.push(p);
+    });
+    walk(join(process.cwd(), "src/app/master"));
+    walk(join(process.cwd(), "src/app/api/master"));
+    expect(hits).toEqual([]);
   });
 });

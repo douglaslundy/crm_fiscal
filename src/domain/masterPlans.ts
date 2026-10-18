@@ -36,10 +36,25 @@ async function write<T>(op: () => Promise<T>): Promise<T> {
   }
 }
 
-export const createPlan = (input: PlanInput): Promise<Plan> => write(() => prisma.plan.create({ data: validate(input) as PlanInput }));
+// Unicidade sem diferenciar maiusculas ("pro" x "Pro"). O indice do banco e case-sensitive: corrida simultanea com
+// nomes que so diferem em caixa ainda poderia passar (shortcut: aceitavel para painel de um unico operador).
+async function assertNameFree(name: string | undefined, exceptId?: string) {
+  if (name !== undefined && await prisma.plan.findFirst({ where: { name: { equals: name, mode: "insensitive" }, ...(exceptId && { id: { not: exceptId } }) }, select: { id: true } }))
+    throw new PlanNameTakenError("Já existe um plano com este nome.");
+}
+
+export const createPlan = async (input: PlanInput): Promise<Plan> => {
+  const data = validate(input) as PlanInput;
+  await assertNameFree(data.name);
+  return write(() => prisma.plan.create({ data }));
+};
 
 // Sem cache: as lojas leem o plano a cada checagem de limites, entao a edicao vale na proxima.
-export const updatePlan = (id: string, data: Partial<PlanInput>): Promise<Plan> => write(() => prisma.plan.update({ where: { id }, data: validate(data) }));
+export const updatePlan = async (id: string, input: Partial<PlanInput>): Promise<Plan> => {
+  const data = validate(input);
+  await assertNameFree(data.name, id);
+  return write(() => prisma.plan.update({ where: { id }, data }));
+};
 
 export const setPlanActive = (id: string, active: boolean): Promise<Plan> => write(() => prisma.plan.update({ where: { id }, data: { active } }));
 

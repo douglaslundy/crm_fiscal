@@ -102,10 +102,14 @@ describe("suspend / reactivate / changePlan / update", () => {
     const a = (await create()).store;
     await applyBillingEvent(a.id, "paused", new Date()); // define graceEndsAt
     expect((await store(a.id)).graceEndsAt).not.toBeNull();
+    const other = (await create()).store;
     await suspendStore(a.id);
+    await suspendStore(other.id);
     await reactivateStore(a.id);
     expect(await store(a.id)).toMatchObject({ status: "ACTIVE", graceEndsAt: null });
     expect((await sub(a.id))?.status).toBe("ACTIVE");
+    expect((await store(other.id)).status).toBe("SUSPENDED"); // outra loja intacta
+    expect((await sub(other.id))?.status).toBe("SUSPENDED");
   });
 
   it("changeStorePlan: troca so Store.planId; plano inativo ou inexistente rejeitado", async () => {

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { StoreStatus } from "@prisma/client";
 import { createStoreAsMaster, listStores } from "@/domain/masterStores";
 import { prisma } from "@/lib/db";
-import { denyUnlessMaster, domainError, parseBody } from "@/lib/master-api";
+import { parseStoreQuery } from "@/lib/master-query";
+import { denyUnlessMaster, domainError, err, parseBody } from "@/lib/master-api";
 
 export async function GET(req: Request) {
   const denied = await denyUnlessMaster(req);
   if (denied) return denied;
-  const sp = new URL(req.url).searchParams;
-  const status = StoreStatus[sp.get("status") as keyof typeof StoreStatus];
-  return NextResponse.json(await listStores({ status, planId: sp.get("planId") || undefined, q: sp.get("q") || undefined, page: Number(sp.get("page")) || 1 }));
+  const query = parseStoreQuery(new URL(req.url).searchParams);
+  if (!query) return err(400, "Filtros inválidos.");
+  return NextResponse.json(await listStores(query));
 }
 
 const Body = z.object({

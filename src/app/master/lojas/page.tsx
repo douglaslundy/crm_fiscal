@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { StoreStatus } from "@prisma/client";
 import { listStores } from "@/domain/masterStores";
 import { prisma } from "@/lib/db";
+import { parseStoreQuery } from "@/lib/master-query";
 import { masterPage } from "@/lib/master-api";
 import { STATUS_LABEL, fmtDate } from "./labels";
 
@@ -12,23 +12,23 @@ type SP = Promise<{ status?: string; planId?: string; q?: string; page?: string 
 export default async function LojasPage({ searchParams }: { searchParams: SP }) {
   await masterPage();
   const sp = await searchParams;
-  const status = StoreStatus[sp.status as keyof typeof StoreStatus];
+  const query = parseStoreQuery(sp) ?? {}; // parametro invalido na URL: lista sem filtros
   const [plans, list] = await Promise.all([
     prisma.plan.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    listStores({ status, planId: sp.planId || undefined, q: sp.q, page: Number(sp.page) || 1 }),
+    listStores(query),
   ]);
   const pages = Math.max(1, Math.ceil(list.total / list.pageSize));
-  const link = (page: number) => `/master/lojas?${new URLSearchParams({ ...(sp.status && { status: sp.status }), ...(sp.planId && { planId: sp.planId }), ...(sp.q && { q: sp.q }), page: String(page) })}`;
+  const link = (page: number) => `/master/lojas?${new URLSearchParams({ ...(query.status && { status: query.status }), ...(query.planId && { planId: query.planId }), ...(query.q && { q: query.q }), page: String(page) })}`;
   return (
     <>
       <h1>Lojas ({list.total})</h1>
       <form method="get" style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
-        <input name="q" defaultValue={sp.q} placeholder="Nome, endereço ou e-mail do dono" />
-        <select name="status" defaultValue={sp.status ?? ""}>
+        <input name="q" defaultValue={query.q} placeholder="Nome, endereço ou e-mail do dono" />
+        <select name="status" defaultValue={query.status ?? ""}>
           <option value="">Todos os status</option>
           {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <select name="planId" defaultValue={sp.planId ?? ""}>
+        <select name="planId" defaultValue={query.planId ?? ""}>
           <option value="">Todos os planos</option>
           {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
