@@ -96,6 +96,22 @@ describe("provedor customer", () => {
     expect(await authorizeCustomer({ email: `c-${tag}@t.local`, password: PW }, "localhost")).toBeNull();
     expect(await authorizeCustomer({ email: `c-${tag}@t.local`, password: PW }, undefined)).toBeNull();
   });
+  it("loja suspensa ou cancelada: login recusado e sessao existente barrada; TRIAL e ACTIVE passam", async () => {
+    await customer(A.id, `c-${tag}@t.local`);
+    const creds = { email: `c-${tag}@t.local`, password: PW };
+    const s = await sessionOf(await authorizeCustomer(creds, host(A)));
+    getSession.mockResolvedValue(s);
+    for (const status of ["SUSPENDED", "CANCELED"] as const) {
+      await prisma.store.update({ where: { id: A.id }, data: { status } });
+      expect(await authorizeCustomer(creds, host(A))).toBeNull();
+      await expectRedirect(requireCustomer(A.id), "/loja-entrar");
+    }
+    for (const status of ["TRIAL", "ACTIVE"] as const) {
+      await prisma.store.update({ where: { id: A.id }, data: { status } });
+      expect(await authorizeCustomer(creds, host(A))).not.toBeNull();
+      await expect(requireCustomer(A.id)).resolves.toBe(s);
+    }
+  });
 });
 
 describe("provedor account e guardas", () => {

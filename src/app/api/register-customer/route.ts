@@ -6,6 +6,7 @@ import { isValidCpf, onlyDigits } from "@/domain/cpf";
 import { dbForStore } from "@/lib/db-store";
 import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
 import { resolveStoreByHost } from "@/lib/tenant";
+import { isStoreBlocked } from "@/domain/subscription";
 
 const Body = z.object({
   name: z.string().trim().min(1).max(120),
@@ -22,8 +23,7 @@ export async function POST(req: Request) {
   const host = req.headers.get(STORE_HOST_HEADER);
   const store = host ? await resolveStoreByHost(host, platformDomain()) : null;
   if (!store) return err(404, "Loja não encontrada.");
-  // shortcut: so checa status; ciclo de vida completo da loja vem em task posterior.
-  if (store.status === "SUSPENDED" || store.status === "CANCELED") return err(403, "Esta loja não está aceitando cadastros.");
+  if (isStoreBlocked(store)) return err(403, "Esta loja não está aceitando cadastros.");
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return err(400, "Dados inválidos.", { fields: z.flattenError(parsed.error).fieldErrors });

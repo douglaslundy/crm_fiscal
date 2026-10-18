@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { dbForStore } from "@/lib/db-store";
 import { resolveStoreByHost } from "@/lib/tenant";
+import { isStoreBlocked } from "@/domain/subscription";
 import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
 
 // Duas populacoes de login (spec): contas da plataforma (master/lojistas) e clientes de UMA loja.
@@ -37,9 +38,10 @@ export async function authorizeAccount(c: Creds): Promise<User | null> {
   return { id: a.id, name: a.name, email: a.email, kind: "account", isMaster: a.isMaster };
 }
 
-/** Cliente da loja do host (nunca de campo do formulario): mesmo email em outra loja e outra conta. */
+/** Cliente da loja do host (nunca de campo do formulario): mesmo email em outra loja e outra conta. Loja SUSPENDED/CANCELED recusa. */
 export async function authorizeCustomer(c: Creds, host: string | undefined): Promise<User | null> {
-  const store = host ? await resolveStoreByHost(host, platformDomain()) : null;
+  const found = host ? await resolveStoreByHost(host, platformDomain()) : null;
+  const store = found && !isStoreBlocked(found) ? found : null; // loja suspensa/cancelada nao aceita login
   const email = normEmail(c?.email);
   const cu = store && email
     ? await dbForStore(store.id).customer.findUnique({ where: { storeId_email: { storeId: store.id, email } } })

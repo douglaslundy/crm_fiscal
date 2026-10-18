@@ -4,6 +4,7 @@ import type { Session } from "next-auth";
 import { getSession } from "@/auth";
 import { prisma } from "./db";
 import { dbForStore } from "./db-store";
+import { isStoreBlocked } from "@/domain/subscription";
 
 // Contrato: cada guarda devolve a sessao ou chama redirect() (lanca NEXT_REDIRECT) para o login
 // da populacao certa: /entrar (plataforma) ou /loja-entrar (loja). Vale em page, layout, server
@@ -33,11 +34,12 @@ export async function requireStoreMember(storeId: string, role?: MemberRole): Pr
   redirect("/entrar");
 }
 
-/** Cliente desta loja (token de outra loja ou de conta da plataforma nunca passa). */
+/** Cliente desta loja (token de outra loja ou de conta da plataforma nunca passa); loja SUSPENDED/CANCELED barra. */
 export async function requireCustomer(storeId: string): Promise<Session> {
   const s = await getSession();
   if (s?.user.kind === "customer" && s.user.storeId === storeId) {
-    if (await dbForStore(storeId).customer.findUnique({ where: { id: s.user.id }, select: { id: true } })) return s;
+    const store = await prisma.store.findUnique({ where: { id: storeId }, select: { status: true } });
+    if (store && !isStoreBlocked(store) && await dbForStore(storeId).customer.findUnique({ where: { id: s.user.id }, select: { id: true } })) return s;
   }
   redirect("/loja-entrar");
 }
