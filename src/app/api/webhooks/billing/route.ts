@@ -20,10 +20,9 @@ export async function POST(req: Request) {
   // shortcut: so subscription_preapproval; subscription_authorized_payment exigiria GET /authorized_payments/{id}.
   if (type !== "subscription_preapproval") return ok();
 
-  const sub = await prisma.subscription.findUnique({ where: { mpPreapprovalId: dataId }, select: { id: true, storeId: true } });
+  const sub = await prisma.subscription.findUnique({ where: { mpPreapprovalId: dataId }, select: { storeId: true } });
   if (!sub) return ok();
   const remote = await gw.getSubscription(dataId);
-  await applyBillingEvent(sub.storeId, remote.status, new Date());
-  await prisma.subscription.update({ where: { id: sub.id }, data: { currentPeriodEnd: remote.nextPaymentAt } });
+  await applyBillingEvent(sub.storeId, remote.status, new Date(), { periodEnd: remote.nextPaymentAt });
   return ok();
 }

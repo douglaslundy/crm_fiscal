@@ -65,8 +65,24 @@ describe("MercadoPagoBilling", () => {
     expect(sent().headers.Authorization).toBe("Bearer TOKEN-123");
   });
 
-  it("getSubscription: status desconhecido e erro", async () => {
-    const { gw } = setup({ body: { status: "expired" } });
+  it("getSubscription: status desconhecido vira pending (sem mudanca) e loga aviso sem segredo", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const status of ["finished", undefined]) {
+        const { gw } = setup({ body: { status } });
+        expect(await gw.getSubscription("abc")).toEqual({ status: "pending", nextPaymentAt: null });
+      }
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(String(warn.mock.calls[0][0])).toContain("finished");
+      expect(warn.mock.calls.flat().join(" ")).not.toContain("TOKEN-123");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("resposta 2xx que nao e JSON vira BillingError (nao SyntaxError)", async () => {
+    const fetch = vi.fn(async () => new Response("<html>oops</html>", { status: 200 }));
+    const gw = new MercadoPagoBilling({ accessToken: "t", webhookSecret: "w", fetch: fetch as never });
     await expect(gw.getSubscription("abc")).rejects.toBeInstanceOf(BillingError);
   });
 

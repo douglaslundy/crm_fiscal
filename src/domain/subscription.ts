@@ -35,23 +35,40 @@ export function transition(cur: LifecycleState, event: BillingStatus, now: Date)
 const same = (a: LifecycleState, b: LifecycleState) =>
   a.store === b.store && a.sub === b.sub && a.graceEndsAt?.getTime() === b.graceEndsAt?.getTime();
 
-export async function applyBillingEvent(storeId: string, status: BillingStatus, now: Date): Promise<void> {
-  const s = await prisma.store.findUnique({ where: { id: storeId }, select: { status: true, graceEndsAt: true, subscription: { select: { status: true } } } });
-  if (!s) throw new StoreNotFoundError(`Loja ${storeId} nao encontrada`);
-  const cur: LifecycleState = { store: s.status, sub: s.subscription?.status ?? "TRIALING", graceEndsAt: s.graceEndsAt };
-  const next = transition(cur, status, now);
-  if (same(cur, next)) return; // evento repetido: no-op
-  await prisma.$transaction([
-    prisma.store.update({ where: { id: storeId }, data: { status: next.store, graceEndsAt: next.graceEndsAt } }),
-    prisma.subscription.upsert({ where: { storeId }, create: { storeId, status: next.sub }, update: { status: next.sub } }),
-  ]);
+// Concorrencia: todo escritor de estado (webhook e cron) trava a linha da Store (FOR UPDATE) e le/decide/escreve
+// na mesma transacao interativa; assim o cron nunca sobrescreve um authorized recem-gravado e vice-versa.
+const lockStores = (tx: Prisma.TransactionClient, ids: string[]) =>
+  tx.$queryRaw`SELECT id FROM "Store" WHERE id = ANY(${ids}) ORDER BY id FOR UPDATE`; // ordem fixa: sem deadlock
+
+export type ApplyOptions = {
+  /** Proximo pagamento informado pelo gateway; gravado na mesma transacao (undefined = nao mexe). */
+  periodEnd?: Date | null;
+  _testAfterRead?: () => Promise<void>;
+};
+export async function applyBillingEvent(storeId: string, status: BillingStatus, now: Date, opts: ApplyOptions = {}): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await lockStores(tx, [storeId]);
+    const s = await tx.store.findUnique({ where: { id: storeId }, select: { status: true, graceEndsAt: true, subscription: { select: { status: true } } } });
+    if (!s) throw new StoreNotFoundError(`Loja ${storeId} nao encontrada`);
+    const cur: LifecycleState = { store: s.status, sub: s.subscription?.status ?? "TRIALING", graceEndsAt: s.graceEndsAt };
+    const next = transition(cur, status, now);
+    await opts._testAfterRead?.();
+    const period = opts.periodEnd === undefined ? {} : { currentPeriodEnd: opts.periodEnd };
+    if (same(cur, next)) {
+      // evento repetido: estado nao muda (so o proximo pagamento, se veio)
+      if (opts.periodEnd !== undefined) await tx.subscription.updateMany({ where: { storeId }, data: period });
+      return;
+    }
+    await tx.store.update({ where: { id: storeId }, data: { status: next.store, graceEndsAt: next.graceEndsAt } });
+    await tx.subscription.upsert({ where: { storeId }, create: { storeId, status: next.sub, ...period }, update: { status: next.sub, ...period } });
+  });
 }
 
 /**
  * Cron: suspende testes vencidos sem assinatura ACTIVE e carencias vencidas ainda PAST_DUE.
- * Idempotente (lojas ja SUSPENDED nao entram de novo). `pastDue` = lojas ainda dentro da carencia (informativo).
+ * Idempotente (lojas ja SUSPENDED nao entram de novo); so relata as lojas realmente suspensas nesta execucao. `pastDue` = lojas ainda dentro da carencia (informativo).
  */
-export async function evaluateStoreLifecycle(now: Date): Promise<{ suspended: string[]; pastDue: string[] }> {
+export async function evaluateStoreLifecycle(now: Date, opts: { _testBeforeWrite?: () => Promise<void> } = {}): Promise<{ suspended: string[]; pastDue: string[] }> {
   const open: StoreStatus[] = ["TRIAL", "ACTIVE"];
   const expired: Prisma.StoreWhereInput = {
     status: { in: open },
@@ -61,7 +78,13 @@ export async function evaluateStoreLifecycle(now: Date): Promise<{ suspended: st
     ],
   };
   return prisma.$transaction(async (tx) => {
-    const suspended = (await tx.store.findMany({ where: expired, select: { id: true } })).map((s) => s.id);
+    const ids = (await tx.store.findMany({ where: expired, select: { id: true } })).map((s) => s.id);
+    // trava os candidatos e reavalia: um webhook que gravou entre o SELECT e a trava tira a loja da lista
+    if (ids.length) await lockStores(tx, ids);
+    await opts._testBeforeWrite?.();
+    const suspended = ids.length
+      ? (await tx.store.findMany({ where: { AND: [expired, { id: { in: ids } }] }, select: { id: true } })).map((s) => s.id)
+      : [];
     if (suspended.length) {
       await tx.store.updateMany({ where: { id: { in: suspended } }, data: { status: "SUSPENDED" } });
       await tx.subscription.updateMany({ where: { storeId: { in: suspended } }, data: { status: "SUSPENDED" } });

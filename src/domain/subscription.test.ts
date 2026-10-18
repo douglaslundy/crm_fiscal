@@ -166,6 +166,62 @@ describe("evaluateStoreLifecycle", () => {
   });
 });
 
+describe("concorrencia cron x webhook (linha da loja travada)", () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("intercalacao forcada: authorized entre o SELECT e o UPDATE do cron nao deixa loja paga SUSPENDED", async () => {
+    const id = await newStore({ trialEndsAt: at(-1) });
+    let webhook: Promise<void> | undefined;
+    await evaluateStoreLifecycle(NOW, {
+      _testBeforeWrite: async () => {
+        webhook ??= applyBillingEvent(id, "authorized", NOW); // sem await: com trava, espera o cron terminar
+        await sleep(300);
+      },
+    });
+    await webhook;
+    expect(await state(id)).toMatchObject({ store: "ACTIVE", sub: "ACTIVE" });
+  });
+
+  it("intercalacao forcada: paused lido antes do cron nao escreve o estado antigo sobre a suspensao", async () => {
+    const id = await newStore({ trialEndsAt: at(-1) });
+    let cronRun: Promise<unknown> | undefined;
+    await applyBillingEvent(id, "paused", NOW, {
+      _testAfterRead: async () => {
+        cronRun ??= evaluateStoreLifecycle(NOW);
+        await sleep(300);
+      },
+    });
+    await cronRun;
+    expect((await state(id)).store).toBe("SUSPENDED"); // teste vencido sem assinatura ACTIVE
+  });
+
+  it("authorized x cron em paralelo (15x): sempre termina ACTIVE/ACTIVE", async () => {
+    for (let i = 0; i < 15; i++) {
+      const id = await newStore({ trialEndsAt: at(-1) });
+      await Promise.all([applyBillingEvent(id, "authorized", NOW), evaluateStoreLifecycle(NOW)]);
+      expect(await state(id)).toMatchObject({ store: "ACTIVE", sub: "ACTIVE" });
+    }
+  });
+
+  it("paused x cron com carencia vencida em paralelo (15x): nunca ACTIVE com carencia vencida", async () => {
+    for (let i = 0; i < 15; i++) {
+      const id = await newStore({ status: "ACTIVE", sub: "PAST_DUE", graceEndsAt: at(-1) });
+      await Promise.all([applyBillingEvent(id, "paused", NOW), evaluateStoreLifecycle(NOW)]);
+      expect(await state(id)).toMatchObject({ store: "SUSPENDED", sub: "SUSPENDED" });
+    }
+  });
+});
+
+describe("applyBillingEvent periodEnd", () => {
+  it("grava currentPeriodEnd na mesma transacao, mesmo sem mudanca de estado", async () => {
+    const id = await newStore({ status: "ACTIVE", sub: "ACTIVE" });
+    await applyBillingEvent(id, "authorized", NOW, { periodEnd: at(30) });
+    expect((await state(id)).periodEnd).toEqual(at(30));
+    await applyBillingEvent(id, "authorized", NOW);
+    expect((await state(id)).periodEnd).toEqual(at(30)); // sem periodEnd: nao mexe
+  });
+});
+
 describe("guardas de estado da loja", () => {
   for (const status of ["TRIAL", "ACTIVE", "SUSPENDED", "CANCELED"] as StoreStatus[]) {
     it(status, () => {

@@ -32,7 +32,13 @@ export class MercadoPagoBilling implements BillingGateway {
       body: body && JSON.stringify(body),
     });
     if (!res.ok) throw new BillingError(`Mercado Pago respondeu ${res.status} em ${method} ${path}`);
-    return res.json();
+    const text = await res.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new BillingError(`Mercado Pago respondeu ${res.status} sem JSON em ${method} ${path}`);
+    }
   }
 
   async createSubscription({ storeId, planId, payerEmail }: { storeId: string; planId: string; payerEmail: string }) {
@@ -64,9 +70,14 @@ export class MercadoPagoBilling implements BillingGateway {
 
   async getSubscription(externalId: string) {
     const r = await this.call("GET", `/preapproval/${encodeURIComponent(externalId)}`);
-    if (typeof r.status !== "string" || !STATUSES.includes(r.status)) throw new BillingError(`Status desconhecido: ${String(r.status)}`);
+    let status = r.status as BillingStatus;
+    if (typeof r.status !== "string" || !STATUSES.includes(r.status)) {
+      // status novo/desconhecido: tratado como pending (nao muda nada) em vez de 500 e retentativa infinita
+      console.warn(`[billing] status desconhecido do Mercado Pago para ${externalId}: ${String(r.status).slice(0, 40)}`);
+      status = "pending";
+    }
     const next = typeof r.next_payment_date === "string" ? new Date(r.next_payment_date) : null;
-    return { status: r.status as BillingStatus, nextPaymentAt: next && !isNaN(next.getTime()) ? next : null };
+    return { status, nextPaymentAt: next && !isNaN(next.getTime()) ? next : null };
   }
 
   /** x-signature "ts=..,v1=.." = HMAC-SHA256 hex de `id:{dataId};request-id:{x-request-id};ts:{ts};` (igual ao SDK oficial). */

@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { formatBRL } from "@/domain/money";
 import {
-  SubscriptionActionError, cancelStoreSubscription, changeStorePlan, startCheckout, type SubscriptionActionCode,
+  SubscriptionActionError, cancelStoreSubscription, changeStorePlan, startCheckout,
 } from "@/domain/subscription";
 import { getBilling } from "@/integrations/billing";
 import { prisma } from "@/lib/db";
 import { requireStoreMember } from "@/lib/guards";
 import { getCurrentStore } from "@/lib/tenant";
+import { errorMessage } from "./messages";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +15,6 @@ export const dynamic = "force-dynamic";
 const PAGE = "/admin/assinatura";
 const STATUS: Record<string, string> = { TRIAL: "Em teste", ACTIVE: "Ativa", SUSPENDED: "Suspensa", CANCELED: "Cancelada" };
 const SUB: Record<string, string> = { TRIALING: "Teste grátis", ACTIVE: "Em dia", PAST_DUE: "Pagamento em atraso", SUSPENDED: "Suspensa", CANCELED: "Cancelada" };
-const ERRORS: Record<SubscriptionActionCode | "CONFIRMAR", string> = {
-  PLAN_NOT_AVAILABLE: "Plano indisponível.",
-  ALREADY_SUBSCRIBED: "Você já tem uma assinatura. Use \"Trocar plano\".",
-  NO_ACTIVE_SUBSCRIPTION: "Só é possível trocar de plano com a assinatura em dia.",
-  CONFIRMAR: "Marque a confirmação para cancelar.",
-};
 const fmt = (d: Date | null | undefined) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "-");
 
 async function owner() {
@@ -80,7 +75,7 @@ export default async function AssinaturaPage({ searchParams }: Props) {
   return (
     <main>
       <h1>Assinatura</h1>
-      {sp.erro && <p role="alert">{ERRORS[sp.erro as keyof typeof ERRORS] ?? "Não foi possível concluir."}</p>}
+      {sp.erro && <p role="alert">{errorMessage(sp.erro)}</p>}
       {sp.ok === "plano" && <p role="status">Plano alterado.</p>}
       {sp.ok === "cancelada" && <p role="status">Assinatura cancelada.</p>}
 
