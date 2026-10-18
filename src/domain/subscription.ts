@@ -37,7 +37,7 @@ const same = (a: LifecycleState, b: LifecycleState) =>
 
 // Concorrencia: todo escritor de estado (webhook e cron) trava a linha da Store (FOR UPDATE) e le/decide/escreve
 // na mesma transacao interativa; assim o cron nunca sobrescreve um authorized recem-gravado e vice-versa.
-const lockStores = (tx: Prisma.TransactionClient, ids: string[]) =>
+export const lockStores = (tx: Prisma.TransactionClient, ids: string[]) =>
   tx.$queryRaw`SELECT id FROM "Store" WHERE id = ANY(${ids}) ORDER BY id FOR UPDATE`; // ordem fixa: sem deadlock
 
 export type ApplyOptions = {
