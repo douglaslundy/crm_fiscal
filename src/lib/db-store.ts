@@ -115,7 +115,11 @@ type Op = "findUnique" | "findUniqueOrThrow" | "findFirst" | "findFirstOrThrow" 
   | "groupBy" | "create" | "createMany" | "createManyAndReturn" | "update" | "updateMany" | "updateManyAndReturn"
   | "upsert" | "delete" | "deleteMany";
 type Scoped = { [K in StoreModelKey]: Pick<Ext[K], Op & keyof Ext[K]> };
-export type StoreDb = Scoped & { $transaction<T>(fn: (tx: Scoped) => Promise<T>): Promise<T> };
+export type TxOptions = {
+  /** Trava a linha da Store (FOR UPDATE) antes de `fn`: serializa leitura+checagem+escrita entre requisicoes da mesma loja (limites de plano, arvore de categorias). */
+  lockStore?: boolean;
+};
+export type StoreDb = Scoped & { $transaction<T>(fn: (tx: Scoped) => Promise<T>, opts?: TxOptions): Promise<T> };
 
 // So funcoes novas por operacao: o delegate do Prisma tem `$parent` (cliente base, sem escopo).
 const pick = (c: Pick<Ext, StoreModelKey>) =>
@@ -130,5 +134,13 @@ const pick = (c: Pick<Ext, StoreModelKey>) =>
 export function dbForStore(storeId: string): StoreDb {
   if (!storeId) throw new StoreScopeError("storeId obrigatorio");
   const ext = extend(storeId);
-  return { ...pick(ext), $transaction: (fn) => ext.$transaction((tx) => fn(pick(tx))) };
+  return {
+    ...pick(ext),
+    // O callback so recebe o cliente escopado (sem $queryRaw nem $parent); o SQL da trava e fixo e parametrizado.
+    $transaction: (fn, opts) =>
+      ext.$transaction(async (tx) => {
+        if (opts?.lockStore) await tx.$queryRaw`SELECT id FROM "Store" WHERE id = ${storeId} FOR UPDATE`;
+        return fn(pick(tx));
+      }),
+  };
 }

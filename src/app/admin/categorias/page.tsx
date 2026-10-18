@@ -1,21 +1,17 @@
 import { MasterForm, type Field } from "@/components/master-form";
-import { listCategories } from "@/domain/categories";
+import { buildTree, listCategories } from "@/domain/categories";
 import { adminPage } from "@/lib/admin-api";
 
 export const dynamic = "force-dynamic";
 
 type Row = Awaited<ReturnType<typeof listCategories>>[number];
-type Node = Row & { depth: number };
-
-/** Ordem de arvore (pai antes das filhas) com o nivel de cada linha; orfas nao existem (FK composta). */
-function flatten(rows: Row[], parentId: string | null = null, depth = 0): Node[] {
-  return rows.filter((r) => r.parentId === parentId).flatMap((r) => [{ ...r, depth }, ...flatten(rows, r.id, depth + 1)]);
-}
 
 export default async function CategoriasPage() {
   const { store, readOnly } = await adminPage();
   const rows = await listCategories(store.id);
-  const tree = flatten(rows);
+  const { tree, orphans } = buildTree(rows);
+  // orfas (ciclo/dado inconsistente) aparecem no fim, no nivel principal, para poderem ser corrigidas
+  const all = [...tree, ...orphans.map((o) => ({ ...o, depth: 0 }))];
   const byId = new Map(rows.map((r) => [r.id, r]));
   const parentField = (selfId?: string, value?: string | null): Field => {
     // exclui a propria categoria e as descendentes (o servidor tambem recusa ciclo)
@@ -23,7 +19,7 @@ export default async function CategoriasPage() {
     if (selfId) { banned = new Set([selfId]); for (let grew = true; grew;) { grew = false; for (const r of rows) if (r.parentId && banned.has(r.parentId) && !banned.has(r.id)) { banned.add(r.id); grew = true; } } }
     return {
       name: "parentId", label: "Categoria pai", type: "select", defaultValue: value ?? "",
-      options: [{ value: "", label: "(nenhuma, nível principal)" }, ...tree.filter((n) => !banned.has(n.id)).map((n) => ({ value: n.id, label: `${"- ".repeat(n.depth)}${n.name}` }))],
+      options: [{ value: "", label: "(nenhuma, nível principal)" }, ...all.filter((n) => !banned.has(n.id)).map((n) => ({ value: n.id, label: `${"- ".repeat(n.depth)}${n.name}` }))],
     };
   };
   const fields = (c?: Row): Field[] => [
@@ -36,10 +32,11 @@ export default async function CategoriasPage() {
     <main>
       <h1>Categorias</h1>
       {readOnly && <p role="status">Loja suspensa: as categorias ficam somente para leitura.</p>}
-      {tree.length === 0 && <p>Nenhuma categoria ainda.</p>}
-      {tree.map((c) => (
+      {all.length === 0 && <p>Nenhuma categoria ainda.</p>}
+      {all.map((c) => (
         <section key={c.id} style={{ border: "1px solid #ccc", padding: 12, margin: "8px 0", marginLeft: c.depth * 24 }}>
           <h2>{c.name} <small>/{c.slug}</small></h2>
+          {orphans.some((o) => o.id === c.id) && <p role="alert">Inconsistente: esta categoria está em um ciclo. Mova-a para o nível principal.</p>}
           <p>
             {c.parentId ? `Dentro de: ${byId.get(c.parentId)?.name}. ` : "Nível principal. "}
             {c.productCount} {c.productCount === 1 ? "produto" : "produtos"}, {c.childCount} {c.childCount === 1 ? "subcategoria" : "subcategorias"}.

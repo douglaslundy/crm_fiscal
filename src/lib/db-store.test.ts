@@ -204,6 +204,28 @@ describe("dbForStore: superficie", () => {
     });
     expect(ids).toEqual([prodA]);
   });
+  it("$transaction com lockStore: callback escopado, sem API bruta nem $parent; a trava bloqueia outra transacao na mesma loja", async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const first = dbForStore(A).$transaction(async (tx) => {
+      const t = tx as unknown as Record<string, unknown>;
+      for (const k of ["$queryRaw", "$executeRaw", "$queryRawUnsafe", "$executeRawUnsafe", "$extends", "$parent", "account", "store"]) expect(t[k], k).toBeUndefined();
+      expect((tx.product as unknown as Record<string, unknown>).$parent).toBeUndefined();
+      order.push("1-in");
+      await gate;
+      order.push("1-out");
+    }, { lockStore: true });
+    await new Promise((r) => setTimeout(r, 300));
+    const second = dbForStore(A).$transaction(async () => { order.push("2-in"); }, { lockStore: true });
+    const otherStore = dbForStore(B).$transaction(async () => { order.push("B-in"); }, { lockStore: true });
+    await otherStore; // outra loja nao espera
+    await new Promise((r) => setTimeout(r, 300));
+    expect(order).toEqual(["1-in", "B-in"]);
+    release();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["1-in", "B-in", "1-out", "2-in"]);
+  });
   it("todo modelo com storeId esta na lista escopada e vice-versa (DMMF)", () => {
     const withStoreId = Prisma.dmmf.datamodel.models
       .filter((m) => m.fields.some((f) => f.name === "storeId"))

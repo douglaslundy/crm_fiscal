@@ -191,6 +191,13 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     getSession.mockResolvedValue(null);
     expect((await call(c, { origin: "https://evil.example" })).status).toBe(401);
   });
+  it("membro removido e recusado na chamada seguinte (permissao relida do banco)", async () => {
+    getSession.mockResolvedValue(staffA);
+    expect((await call(cases[0])).status).toBe(200);
+    await prisma.storeMember.deleteMany({ where: { storeId: storeA, accountId: staffA.user.id } });
+    expect((await call(cases[0])).status).toBe(403);
+    expect((await call(cases[1])).status).toBe(403);
+  });
   it("recusas nao executam a acao", async () => {
     getSession.mockResolvedValue(ownerB);
     await call(cases.find((c) => c.method === "DELETE")!);
@@ -296,6 +303,8 @@ describe("paginas /admin", () => {
 
   it("toda page.tsx de src/app/admin abre com a guarda (await adminPage(); assinatura usa owner() proprio)", () => {
     const pages = walkFiles(join(process.cwd(), "src/app/admin"), (f) => f === "page.tsx");
+    const odd = walkFiles(join(process.cwd(), "src/app/admin"), (f) => /^page\./.test(f) && f !== "page.tsx");
+    expect(odd, "use page.tsx (outras extensoes escapariam do scan)").toEqual([]);
     expect(pages.length).toBeGreaterThanOrEqual(2);
     for (const p of pages) {
       const src = readFileSync(p, "utf8");

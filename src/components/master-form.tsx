@@ -32,7 +32,7 @@ const MESSAGES: Record<string, string> = {
   STORE_SUSPENDED: "Loja suspensa: o painel está somente leitura.",
 };
 
-/** Formulario simples que envia JSON para uma rota /api/master e atualiza (ou redireciona). */
+/** Formulario simples que envia JSON para uma rota /api/master ou /api/admin (paineis master e da loja) e atualiza (ou redireciona). */
 export function MasterForm(p: {
   url: string; method?: "POST" | "PATCH" | "DELETE"; fields?: Field[]; submit: string;
   confirm?: string; redirectTo?: string; extra?: Record<string, unknown>;

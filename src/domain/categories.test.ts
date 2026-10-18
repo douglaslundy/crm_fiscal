@@ -4,7 +4,7 @@ import { dbForStore } from "@/lib/db-store";
 import { SlugInvalidError, SlugTakenError } from "./stores";
 import {
   CategoryInUseError, CategoryNotFoundError, CategoryValidationError, MaxDepthError, ParentCycleError, ParentNotFoundError,
-  createCategory, deleteCategory, listCategories, updateCategory,
+  buildTree, createCategory, deleteCategory, listCategories, updateCategory,
 } from "./categories";
 
 let tag: string;
@@ -153,5 +153,73 @@ describe("listCategories", () => {
     const list = await listCategories(a);
     expect(list.map((c) => c.name).sort()).toEqual(["Filha", "Pai"]);
     expect(list.find((c) => c.name === "Pai")).toMatchObject({ productCount: 1, childCount: 1 });
+  });
+});
+
+const hasCycle = (rows: { id: string; parentId: string | null }[]) => {
+  const map = new Map(rows.map((r) => [r.id, r]));
+  return rows.some((r) => {
+    const seen = new Set<string>();
+    for (let c: typeof r | undefined = r; c; c = c.parentId ? map.get(c.parentId) : undefined) {
+      if (seen.has(c.id)) return true;
+      seen.add(c.id);
+    }
+    return false;
+  });
+};
+const settle = (ps: Promise<unknown>[]) => Promise.allSettled(ps);
+
+describe("concorrencia na arvore (trava da loja)", () => {
+  it("PATCH A->B e B->A ao mesmo tempo: exatamente um passa, o outro PARENT_CYCLE, sem ciclo no banco", async () => {
+    for (let i = 0; i < 6; i++) {
+      const x = await createCategory(a, { name: `X${i}` });
+      const y = await createCategory(a, { name: `Y${i}` });
+      const r = await settle([updateCategory(a, x.id, { parentId: y.id }), updateCategory(a, y.id, { parentId: x.id })]);
+      expect(r.filter((v) => v.status === "fulfilled"), `iteracao ${i}`).toHaveLength(1);
+      const bad = r.find((v) => v.status === "rejected") as PromiseRejectedResult;
+      expect(bad.reason).toBeInstanceOf(ParentCycleError);
+      expect(hasCycle(await prisma.category.findMany({ where: { storeId: a }, select: { id: true, parentId: true } }))).toBe(false);
+    }
+  });
+  it("criar filha sob pai de nivel 2 enquanto outra raiz com filha e movida para la: nunca passa de 3 niveis", async () => {
+    for (let i = 0; i < 4; i++) {
+      const l1 = await createCategory(a, { name: `L1-${i}` });
+      const l2 = await createCategory(a, { name: `L2-${i}`, parentId: l1.id });
+      const r = await createCategory(a, { name: `R-${i}` });
+      await createCategory(a, { name: `Rc-${i}` , parentId: r.id });
+      const res = await settle([
+        createCategory(a, { name: `N-${i}`, parentId: l2.id }), // nivel 3
+        updateCategory(a, r.id, { parentId: l2.id }), // subarvore de altura 2 sob nivel 2 = 4 niveis
+      ]);
+      const all = await prisma.category.findMany({ where: { storeId: a }, select: { id: true, parentId: true } });
+      const map = new Map(all.map((c) => [c.id, c]));
+      const level = (id: string) => { let n = 0; for (let c = map.get(id); c; c = c.parentId ? map.get(c.parentId) : undefined) n++; return n; };
+      expect(Math.max(...all.map((c) => level(c.id))), `iteracao ${i}`).toBeLessThanOrEqual(3);
+      expect(res.some((v) => v.status === "rejected" && v.reason instanceof MaxDepthError)).toBe(true);
+    }
+  });
+});
+
+describe("arvore ja corrompida (ciclo inserido direto no banco)", () => {
+  async function corrupt() {
+    const x = await createCategory(a, { name: "CX" });
+    const y = await createCategory(a, { name: "CY", parentId: x.id });
+    await prisma.$executeRaw`UPDATE "Category" SET "parentId" = ${y.id} WHERE id = ${x.id}`;
+    return { x, y };
+  }
+  it("listCategories/buildTree nao travam e mostram os nos como orfaos", async () => {
+    const { x, y } = await corrupt();
+    const ok = await createCategory(a, { name: "Normal" });
+    const { tree, orphans } = buildTree(await listCategories(a));
+    expect(tree.map((n) => n.id)).toEqual([ok.id]);
+    expect(orphans.map((n) => n.id).sort()).toEqual([x.id, y.id].sort());
+  });
+  it("PATCH de pai nos nos do ciclo devolve erro de dominio (nao RangeError)", async () => {
+    const { x, y } = await corrupt();
+    const root = await createCategory(a, { name: "Raiz" });
+    await expect(updateCategory(a, x.id, { parentId: root.id })).rejects.toBeInstanceOf(ParentCycleError);
+    await expect(updateCategory(a, root.id, { parentId: y.id })).rejects.toThrow(/Max|Cycle|níveis|ciclo|dentro/i);
+    expect(await updateCategory(a, x.id, { name: "Renomeada" })).toMatchObject({ name: "Renomeada" }); // sem mexer no pai segue funcionando
+    expect(await updateCategory(a, x.id, { parentId: null })).toMatchObject({ parentId: null }); // e a raiz desfaz o ciclo
   });
 });
