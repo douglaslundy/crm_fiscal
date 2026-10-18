@@ -165,7 +165,8 @@ export async function updateProduct(storeId: string, id: string, input: ProductP
         if (rows.length) await tx.productImage.createMany({ data: rows });
         dropped = p.images.map((i) => i.url).filter((u) => !rows.some((r) => r.url === u));
       }
-      return tx.product.update({ where: { id }, data: { ...data, ...(data.name !== undefined && { slug: productSlug(data.name) }) }, include: FULL });
+      // Slug fixo desde a criacao: renomear nao quebra links publicos da vitrine.
+      return tx.product.update({ where: { id }, data, include: FULL });
     }, { lockStore: true });
     await removeImages(storeId, dropped);
     return result;

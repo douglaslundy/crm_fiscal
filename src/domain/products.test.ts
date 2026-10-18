@@ -153,19 +153,19 @@ describe("imagens", () => {
 });
 
 describe("updateProduct", () => {
-  it("atualiza campos e recalcula o slug ao renomear", async () => {
+  it("atualiza campos; slug e imutavel ao renomear (links publicos nao quebram)", async () => {
     const p = await createProduct(a, input(catA));
     const cat2 = (await dbForStore(a).category.create({ data: { storeId: a, name: "Novas", slug: "novas" } })).id;
     const up = await updateProduct(a, p.id, { name: "Camiseta Nova", categoryId: cat2, weightGrams: 500 });
-    expect(up).toMatchObject({ name: "Camiseta Nova", slug: "camiseta-nova", categoryId: cat2, weightGrams: 500 });
+    expect(up).toMatchObject({ name: "Camiseta Nova", slug: "camiseta-basica", categoryId: cat2, weightGrams: 500 });
   });
-  it("produto/categoria de outra loja -> 404/400; slug repetido 409", async () => {
+  it("produto/categoria de outra loja -> 404/400; renomear para nome de outro produto nao colide (slug fixo)", async () => {
     const pa = await createProduct(a, input(catA));
     const pb = await createProduct(b, input(catB));
     expect(await code(updateProduct(a, pb.id, { name: "Hack" }))).toBe("404 PRODUCT_NOT_FOUND");
     expect(await code(updateProduct(a, pa.id, { categoryId: catB }))).toBe("400 CATEGORY_INVALID");
     await createProduct(a, input(catA, { name: "Outra", variants: [variant("X", "P")] }));
-    expect(await code(updateProduct(a, pa.id, { name: "Outra" }))).toBe("409 SLUG_TAKEN");
+    expect(await updateProduct(a, pa.id, { name: "Outra" })).toMatchObject({ name: "Outra", slug: "camiseta-basica" });
     expect(await prisma.product.findUniqueOrThrow({ where: { id: pb.id } })).toMatchObject({ name: "Camiseta Básica" });
   });
   it("ativar sem variacao ativa -> 400 NO_ACTIVE_VARIANT", async () => {

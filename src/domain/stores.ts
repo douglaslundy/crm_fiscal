@@ -5,7 +5,7 @@ import { slugify } from "./slug";
 
 export const TRIAL_DAYS = 14;
 const SLUG_RE = /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/;
-const RESERVED = new Set(["www", "api", "master", "admin", "app", "mail", "ftp", "static", "assets", "loja", "plataforma", "entrar", "cadastro", "comecar"]);
+const RESERVED = new Set(["www", "api", "master", "admin", "app", "mail", "ftp", "static", "assets", "loja", "plataforma", "entrar", "cadastro", "comecar", "vitrine"]);
 const DEFAULT_SETTINGS = [["originCep", "37175000"], ["pixDiscountPercent", "0"]] as const;
 
 export class SlugTakenError extends Error {}
