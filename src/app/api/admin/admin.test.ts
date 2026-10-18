@@ -19,6 +19,10 @@ const getSession = vi.mocked(auth.getSession);
 const categories = await import("./categories/route");
 const categoryId = await import("./categories/[id]/route");
 const upload = await import("./upload/route");
+const products = await import("./products/route");
+const productId = await import("./products/[id]/route");
+const variants = await import("./products/[id]/variants/route");
+const variantId = await import("./products/[id]/variants/[variantId]/route");
 
 let tag: string;
 let planId: string;
@@ -27,6 +31,11 @@ let storeB: string;
 let hostA: string;
 let catA: string;
 let catB: string;
+let prodA: string;
+let varA1: string;
+let varA2: string;
+let prodB: string;
+let varB: string;
 let ownerA: Session;
 let staffA: Session;
 let ownerB: Session;
@@ -56,6 +65,16 @@ beforeEach(async () => {
   hostA = `t9a-a-${tag}.localhost`;
   catA = (await dbForStore(storeA).category.create({ data: { storeId: storeA, name: "Cat A", slug: "cat-a" } })).id;
   catB = (await dbForStore(storeB).category.create({ data: { storeId: storeB, name: "Cat B", slug: "cat-b" } })).id;
+  // Sem categoria de proposito: as linhas de categories (DELETE catA, contagens) seguem como antes.
+  const mkProduct = async (storeId: string, categoryId: null, skus: string[]) => {
+    const db = dbForStore(storeId);
+    const p = await db.product.create({ data: { storeId, categoryId, slug: "camiseta", name: "Camiseta", weightGrams: 300, heightCm: 4, widthCm: 25, lengthCm: 30 } });
+    const vs = [];
+    for (const [i, sku] of skus.entries()) vs.push((await db.variant.create({ data: { storeId, productId: p.id, sku, color: "Preto", size: `T${i}`, priceCents: 4990, stock: 3 } })).id);
+    return [p.id, ...vs];
+  };
+  [prodA, varA1, varA2] = await mkProduct(storeA, null, ["sku-a1", "sku-a2"]);
+  [prodB, varB] = await mkProduct(storeB, null, ["sku-b1"]);
   ownerA = session(oa, "account");
   staffA = session(sa, "account");
   ownerB = session(ob, "account");
@@ -71,8 +90,12 @@ afterEach(async () => {
 });
 afterAll(() => prisma.$disconnect());
 
-type Handler = (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
-type Case = { route: string; method: string; handler: Handler; body?: () => unknown; multipart?: () => FormData; id?: () => string; ok: number };
+type Handler = (req: Request, ctx: { params: Promise<{ id: string; variantId: string }> }) => Promise<Response>;
+type Case = { route: string; method: string; handler: Handler; body?: () => unknown; multipart?: () => FormData; id?: () => string; variantId?: () => string; ok: number };
+const newProduct = () => ({
+  name: "Nova Camiseta", categoryId: catA, weightGrams: 200, heightCm: 2, widthCm: 20, lengthCm: 30,
+  variants: [{ color: "Azul", size: "M", sku: "nova-azul-m", priceCents: 5990, stock: 1 }],
+});
 const pngForm = () => {
   const fd = new FormData();
   fd.append("file", new Blob([PNG], { type: "image/png" }), "x.png");
@@ -86,6 +109,14 @@ const cases: Case[] = [
   { route: "categories/[id]", method: "PATCH", handler: categoryId.PATCH as Handler, id: () => catA, ok: 200, body: () => ({ name: "Renomeada" }) },
   { route: "categories/[id]", method: "DELETE", handler: categoryId.DELETE as Handler, id: () => catA, ok: 200 },
   { route: "upload", method: "POST", handler: upload.POST as Handler, ok: 201, multipart: pngForm },
+  { route: "products", method: "GET", handler: products.GET as Handler, ok: 200 },
+  { route: "products", method: "POST", handler: products.POST as Handler, ok: 201, body: newProduct },
+  { route: "products/[id]", method: "GET", handler: productId.GET as Handler, id: () => prodA, ok: 200 },
+  { route: "products/[id]", method: "PATCH", handler: productId.PATCH as Handler, id: () => prodA, ok: 200, body: () => ({ weightGrams: 999 }) },
+  { route: "products/[id]", method: "DELETE", handler: productId.DELETE as Handler, id: () => prodA, ok: 200 },
+  { route: "products/[id]/variants", method: "POST", handler: variants.POST as Handler, id: () => prodA, ok: 201, body: () => ({ color: "Verde", size: "G", sku: "verde-g", priceCents: 100, stock: 1 }) },
+  { route: "products/[id]/variants/[variantId]", method: "PATCH", handler: variantId.PATCH as Handler, id: () => prodA, variantId: () => varA1, ok: 200, body: () => ({ stock: 7 }) },
+  { route: "products/[id]/variants/[variantId]", method: "DELETE", handler: variantId.DELETE as Handler, id: () => prodA, variantId: () => varA1, ok: 200 },
 ];
 
 // Host da loja A e Origin proprio por padrao (como o navegador no painel); valor undefined remove o header.
@@ -94,7 +125,7 @@ const call = (c: Case, extraHeaders: Record<string, string | undefined> = {}) =>
   const headers = Object.entries({ "content-type": c.multipart ? undefined : "application/json", origin: "http://localhost", [STORE_HOST_HEADER]: hostA, ...extraHeaders }).filter((e): e is [string, string] => e[1] !== undefined);
   return c.handler(
     new Request("http://localhost/api/admin/x", { method: c.method, headers, body: c.multipart ? c.multipart() : c.body ? JSON.stringify(c.body()) : undefined }),
-    { params: Promise.resolve({ id: c.id?.() ?? "" }) },
+    { params: Promise.resolve({ id: c.id?.() ?? "", variantId: c.variantId?.() ?? "" }) },
   );
 };
 
@@ -162,6 +193,7 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     expect(res.status, await res.clone().text()).toBe(c.ok);
   });
 
+  beforeEach(() => storage.files.clear());
   it.each(cases)("$method $route: loja suspensa, leitura passa e escrita 403 STORE_SUSPENDED", async (c) => {
     for (const status of ["SUSPENDED", "CANCELED"] as const) {
       await prisma.store.update({ where: { id: storeA }, data: { status } });
@@ -175,6 +207,9 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     }
     expect(await prisma.category.count({ where: { id: catA } })).toBe(1);
     expect(await prisma.category.count({ where: { storeId: storeA } })).toBe(1);
+    expect(await prisma.product.findMany({ where: { storeId: storeA }, select: { id: true, weightGrams: true } })).toEqual([{ id: prodA, weightGrams: 300 }]);
+    expect(await prisma.variant.count({ where: { productId: prodA, stock: 3 } })).toBe(2);
+    expect(storage.files.size).toBe(0);
   });
 
   const mutating = cases.filter((c) => c.method !== "GET");
@@ -275,6 +310,69 @@ describe("/api/admin/categories: comportamento", () => {
     const del = await send("categories/[id]", "DELETE", undefined, catA);
     expect([del.status, (await del.json()).error]).toEqual([409, "CATEGORY_IN_USE"]);
     expect((await send("categories/[id]", "DELETE", undefined, l3)).status).toBe(200);
+  });
+});
+
+describe("/api/admin/products: comportamento", () => {
+  beforeEach(() => getSession.mockResolvedValue(staffA));
+  const send = (route: string, method: string, body?: unknown, id = "", vid = "", qs = "") => {
+    const c = cases.find((x) => x.route === route && x.method === method)!;
+    const headers = { "content-type": "application/json", origin: "http://localhost", [STORE_HOST_HEADER]: hostA };
+    return c.handler(
+      new Request(`http://localhost/api/admin/x${qs}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }),
+      { params: Promise.resolve({ id, variantId: vid }) },
+    );
+  };
+  const res = async (r: Promise<Response>) => { const x = await r; return [x.status, (await x.json()).error]; };
+
+  it("JSON invalido ou campos fora da faixa -> 400, nunca 500", async () => {
+    for (const body of [null, "x", [], { ...newProduct(), name: "" }, { ...newProduct(), weightGrams: "1" }, { ...newProduct(), heightCm: 106 },
+      { ...newProduct(), variants: [{ color: "A", size: "P", sku: "s", priceCents: -5, stock: 1 }] }, { ...newProduct(), images: Array(11).fill({ url: "x" }) },
+      { ...newProduct(), categoryId: undefined }]) {
+      expect((await send("products", "POST", body)).status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await send("products/[id]", "PATCH", { active: "sim" }, prodA)).status).toBe(400);
+    expect((await send("products/[id]/variants", "POST", { color: "A" }, prodA)).status).toBe(400);
+    expect((await send("products/[id]/variants/[variantId]", "PATCH", { stock: 1.5 }, prodA, varA1)).status).toBe(400);
+  });
+  it("erros de regra viram status HTTP", async () => {
+    expect(await res(send("products", "POST", { ...newProduct(), categoryId: catB }))).toEqual([400, "CATEGORY_INVALID"]);
+    expect(await res(send("products", "POST", { ...newProduct(), variants: [{ color: "A", size: "P", sku: "sku-a1", priceCents: 1, stock: 1 }] }))).toEqual([409, "SKU_TAKEN"]);
+    expect(await res(send("products", "POST", { ...newProduct(), name: "Camiseta" }))).toEqual([409, "SLUG_TAKEN"]);
+    expect(await res(send("products", "POST", { ...newProduct(), variants: [] }))).toEqual([400, "NO_ACTIVE_VARIANT"]);
+    expect(await res(send("products", "POST", { ...newProduct(), images: [{ url: "https://evil.example/a.png" }] }))).toEqual([400, "IMAGE_URL_INVALID"]);
+    expect(await res(send("products/[id]", "GET", undefined, prodB))).toEqual([404, "PRODUCT_NOT_FOUND"]);
+    expect(await res(send("products/[id]", "PATCH", { name: "Hack" }, prodB))).toEqual([404, "PRODUCT_NOT_FOUND"]);
+    expect(await res(send("products/[id]", "DELETE", undefined, prodB))).toEqual([404, "PRODUCT_NOT_FOUND"]);
+    expect(await res(send("products/[id]/variants", "POST", { color: "X", size: "P", sku: "zz", priceCents: 1, stock: 0 }, prodB))).toEqual([404, "PRODUCT_NOT_FOUND"]);
+    expect(await res(send("products/[id]/variants/[variantId]", "PATCH", { stock: 0 }, prodA, varB))).toEqual([404, "VARIANT_NOT_FOUND"]);
+    expect(await res(send("products/[id]/variants/[variantId]", "DELETE", undefined, prodB, varB))).toEqual([404, "VARIANT_NOT_FOUND"]);
+    expect(await prisma.product.findUniqueOrThrow({ where: { id: prodB } })).toMatchObject({ name: "Camiseta" });
+    expect(await prisma.variant.count({ where: { id: varB } })).toBe(1);
+  });
+  it("limite do plano -> 403 PLAN_LIMIT com mensagem", async () => {
+    await prisma.plan.update({ where: { id: planId }, data: { productLimit: 1 } });
+    const r = await send("products", "POST", newProduct());
+    expect(r.status).toBe(403);
+    expect(await r.json()).toMatchObject({ error: "PLAN_LIMIT", code: "PRODUCT_LIMIT", limit: 1 });
+  });
+  it("historico de pedidos: 409 e desativar continua possivel", async () => {
+    const db = dbForStore(storeA);
+    const c = await db.customer.create({ data: { storeId: storeA, name: "C", email: `c-${tag}@t.local`, cpf: "1", phone: "1", passwordHash: "x" } });
+    const o = await db.order.create({ data: { storeId: storeA, customerId: c.id, subtotalCents: 1, shippingCents: 0, totalCents: 1, shippingService: "PAC", addressSnapshot: {} } });
+    await db.orderItem.create({ data: { storeId: storeA, orderId: o.id, variantId: varA1, productName: "x", sku: "x", color: "x", size: "x", unitPriceCents: 1, quantity: 1 } });
+    expect(await res(send("products/[id]", "DELETE", undefined, prodA))).toEqual([409, "PRODUCT_HAS_ORDERS"]);
+    expect(await res(send("products/[id]/variants/[variantId]", "DELETE", undefined, prodA, varA1))).toEqual([409, "VARIANT_HAS_ORDERS"]);
+    expect((await send("products/[id]/variants/[variantId]", "PATCH", { active: false }, prodA, varA1)).status).toBe(200);
+    expect(await res(send("products/[id]/variants/[variantId]", "PATCH", { active: false }, prodA, varA2))).toEqual([400, "LAST_ACTIVE_VARIANT"]);
+  });
+  it("lista: filtros invalidos -> 400; validos filtram so a loja do host", async () => {
+    for (const qs of ["?page=0", "?page=x", "?active=talvez", "?categoryId=../a", `?q=${"x".repeat(101)}`]) {
+      expect((await send("products", "GET", undefined, "", "", qs)).status, qs).toBe(400);
+    }
+    const list = await (await send("products", "GET", undefined, "", "", "?q=sku-a2&active=true")).json();
+    expect(list).toMatchObject({ total: 1, page: 1, pageSize: 25, items: [{ id: prodA, variantCount: 2 }] });
+    expect((await (await send("products", "GET", undefined, "", "", "?q=sku-b1")).json()).total).toBe(0);
   });
 });
 

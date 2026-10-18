@@ -1,0 +1,69 @@
+import { dbForStore } from "@/lib/db-store";
+import { MAX_VARIANTS } from "./variants";
+import {
+  ProductError, VariantCreate, VariantPatch, isFkError, uniqueToProductError, type Tx, type VariantCreateInput,
+} from "./products";
+import type { z } from "zod";
+
+// Regra escolhida: desativar/apagar a ultima variacao ativa de produto ativo e recusado (400 LAST_ACTIVE_VARIANT);
+// o lojista desativa o produto antes. Nada muda sozinho.
+async function assertNotLastActive(tx: Tx, productId: string, variantId: string): Promise<void> {
+  const p = await tx.product.findUniqueOrThrow({ where: { id: productId }, select: { active: true } });
+  if (!p.active) return;
+  if (!(await tx.variant.count({ where: { productId, active: true, id: { not: variantId } } }))) throw new ProductError("LAST_ACTIVE_VARIANT");
+}
+
+async function findVariant(tx: Tx, productId: string, variantId: string) {
+  const v = await tx.variant.findFirst({ where: { id: variantId, productId } });
+  if (!v) throw new ProductError("VARIANT_NOT_FOUND");
+  return v;
+}
+
+// Todas sob a trava da loja: contagem/ultima-ativa nao se intercalam com outra edicao do mesmo produto.
+const run = async <T>(storeId: string, fn: (tx: Tx) => Promise<T>): Promise<T> => {
+  try {
+    return await dbForStore(storeId).$transaction(fn, { lockStore: true });
+  } catch (e) {
+    throw uniqueToProductError(e);
+  }
+};
+
+export async function addVariant(storeId: string, productId: string, input: VariantCreateInput) {
+  const data = VariantCreate.parse(input);
+  return run(storeId, async (tx) => {
+    if (!(await tx.product.findUnique({ where: { id: productId }, select: { id: true } }))) throw new ProductError("PRODUCT_NOT_FOUND");
+    if ((await tx.variant.count({ where: { productId } })) >= MAX_VARIANTS) throw new ProductError("TOO_MANY_VARIANTS");
+    const same = await tx.variant.findMany({ where: { productId }, select: { color: true, size: true } });
+    if (same.some((v) => v.color.toLowerCase() === data.color.toLowerCase() && v.size.toLowerCase() === data.size.toLowerCase())) throw new ProductError("VARIANT_EXISTS");
+    return tx.variant.create({ data: { ...data, storeId, productId } });
+  });
+}
+
+export async function updateVariant(storeId: string, productId: string, variantId: string, input: z.input<typeof VariantPatch>) {
+  const data = VariantPatch.parse(input);
+  return run(storeId, async (tx) => {
+    const v = await findVariant(tx, productId, variantId);
+    if (data.active === false && v.active) await assertNotLastActive(tx, productId, variantId);
+    const color = data.color ?? v.color;
+    const size = data.size ?? v.size;
+    if (data.color !== undefined || data.size !== undefined) {
+      const others = await tx.variant.findMany({ where: { productId, id: { not: variantId } }, select: { color: true, size: true } });
+      if (others.some((o) => o.color.toLowerCase() === color.toLowerCase() && o.size.toLowerCase() === size.toLowerCase())) throw new ProductError("VARIANT_EXISTS");
+    }
+    return tx.variant.update({ where: { id: variantId }, data });
+  });
+}
+
+/** Variacao com historico de pedidos nao sai (FK NoAction): 409, o lojista desativa. */
+export async function deleteVariant(storeId: string, productId: string, variantId: string): Promise<void> {
+  try {
+    await run(storeId, async (tx) => {
+      const v = await findVariant(tx, productId, variantId);
+      if (await tx.orderItem.count({ where: { variantId } })) throw new ProductError("VARIANT_HAS_ORDERS");
+      if (v.active) await assertNotLastActive(tx, productId, variantId);
+      await tx.variant.delete({ where: { id: variantId } });
+    });
+  } catch (e) {
+    throw isFkError(e) ? new ProductError("VARIANT_HAS_ORDERS") : e;
+  }
+}

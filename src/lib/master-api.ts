@@ -7,7 +7,8 @@ import { getSession } from "@/auth";
 import {
   CategoryInUseError, CategoryNotFoundError, CategoryValidationError, MaxDepthError, ParentCycleError, ParentNotFoundError,
 } from "@/domain/categories";
-import { StoreNotFoundError } from "@/domain/entitlements";
+import { PlanLimitError, StoreNotFoundError, planLimitToHttp } from "@/domain/entitlements";
+import { ProductError } from "@/domain/products";
 import { StoreSuspendedError } from "@/domain/subscription";
 import { PlanInUseError, PlanNameTakenError, PlanValidationError } from "@/domain/masterPlans";
 import { EmailExistsError, PasswordRequiredError, PlanNotFoundError, SlugInvalidError, SlugTakenError } from "@/domain/stores";
@@ -47,6 +48,12 @@ export async function parseBody<S extends z.ZodType>(req: Request, schema: S): P
 
 /** Erros de dominio conhecidos viram resposta; o resto sobe (500). */
 export function domainError(e: unknown): NextResponse {
+  if (e instanceof ProductError) return err(e.status, e.code);
+  if (e instanceof z.ZodError) return err(400, "Dados inválidos.", { fields: z.flattenError(e).fieldErrors });
+  if (e instanceof PlanLimitError) {
+    const { status, body } = planLimitToHttp(e);
+    return NextResponse.json(body, { status });
+  }
   if (e instanceof StoreNotFoundError) return err(404, "STORE_NOT_FOUND");
   if (e instanceof PlanNotFoundError) return err(404, "PLAN_NOT_FOUND");
   if (e instanceof EmailExistsError) return err(409, "EMAIL_EXISTS");
