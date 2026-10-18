@@ -23,6 +23,13 @@ const MESSAGES: Record<string, string> = {
   PLAN_IN_USE: "Plano em uso por lojas: desative em vez de excluir.",
   PLAN_INVALID: "Dados do plano inválidos.",
   STORE_NOT_FOUND: "Loja não encontrada.",
+  CATEGORY_INVALID: "O nome deve ter de 1 a 60 caracteres.",
+  CATEGORY_NOT_FOUND: "Categoria não encontrada.",
+  CATEGORY_IN_USE: "Categoria com produtos ou subcategorias: mova ou exclua antes.",
+  PARENT_NOT_FOUND: "Categoria pai não encontrada.",
+  PARENT_CYCLE: "Uma categoria não pode ficar dentro dela mesma.",
+  MAX_DEPTH: "No máximo 3 níveis de categorias.",
+  STORE_SUSPENDED: "Loja suspensa: o painel está somente leitura.",
 };
 
 /** Formulario simples que envia JSON para uma rota /api/master e atualiza (ou redireciona). */

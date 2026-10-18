@@ -4,7 +4,11 @@ import { notFound } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { z } from "zod";
 import { getSession } from "@/auth";
+import {
+  CategoryInUseError, CategoryNotFoundError, CategoryValidationError, MaxDepthError, ParentCycleError, ParentNotFoundError,
+} from "@/domain/categories";
 import { StoreNotFoundError } from "@/domain/entitlements";
+import { StoreSuspendedError } from "@/domain/subscription";
 import { PlanInUseError, PlanNameTakenError, PlanValidationError } from "@/domain/masterPlans";
 import { EmailExistsError, PasswordRequiredError, PlanNotFoundError, SlugInvalidError, SlugTakenError } from "@/domain/stores";
 import { STORE_HOST_HEADER } from "./host";
@@ -52,5 +56,12 @@ export function domainError(e: unknown): NextResponse {
   if (e instanceof SlugInvalidError) return err(400, "SLUG_INVALID");
   if (e instanceof PasswordRequiredError) return err(400, "PASSWORD_REQUIRED");
   if (e instanceof PlanValidationError) return err(400, "PLAN_INVALID");
+  if (e instanceof StoreSuspendedError) return err(403, "STORE_SUSPENDED");
+  if (e instanceof CategoryNotFoundError) return err(404, "CATEGORY_NOT_FOUND");
+  if (e instanceof CategoryInUseError) return err(409, "CATEGORY_IN_USE");
+  if (e instanceof ParentNotFoundError) return err(400, "PARENT_NOT_FOUND");
+  if (e instanceof ParentCycleError) return err(400, "PARENT_CYCLE");
+  if (e instanceof MaxDepthError) return err(400, "MAX_DEPTH");
+  if (e instanceof CategoryValidationError) return err(400, "CATEGORY_INVALID");
   throw e;
 }
