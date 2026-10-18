@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { priceCart, type VariantRow } from "./cart";
+import { mergeNotices, priceCart, type VariantRow } from "./cart";
 
 const v = (id: string, o: Partial<VariantRow> = {}): VariantRow => ({
   id, productId: "p1", productName: "Camiseta", color: "Preto", size: "M", sku: `S-${id}`, priceCents: 5000, stock: 10, active: true, imageUrl: null, ...o,
@@ -53,5 +53,19 @@ describe("priceCart", () => {
     );
     expect(r.lines.map((l) => l.variantId)).toEqual(["a", "b"]);
     expect(r.issues.map((i) => i.variantId)).toEqual(["c", "a", "z"]);
+  });
+});
+
+describe("mergeNotices", () => {
+  const reduced = [{ variantId: "a", kind: "QTY_REDUCED" as const, available: 3 }];
+  it("qty 5 com estoque 3: aviso sobrevive a nova consulta sem avisos", () => {
+    const first = priceCart([{ variantId: "a", qty: 5 }], [v("a", { stock: 3 })]);
+    const notices = mergeNotices([], first.issues);
+    const refetch = priceCart([{ variantId: "a", qty: first.lines[0].qty }], [v("a", { stock: 3 })]); // carrinho ja corrigido
+    expect(refetch.issues).toEqual([]);
+    expect(mergeNotices(notices, refetch.issues)).toEqual(reduced);
+  });
+  it("resposta com avisos substitui os anteriores", () => {
+    expect(mergeNotices(reduced, [{ variantId: "b", kind: "OUT_OF_STOCK", available: 0 }])).toEqual([{ variantId: "b", kind: "OUT_OF_STOCK", available: 0 }]);
   });
 });

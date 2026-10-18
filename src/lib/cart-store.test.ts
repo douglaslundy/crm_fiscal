@@ -42,4 +42,14 @@ describe("cart-store", () => {
     cart.replace([{ variantId: "z", qty: 4 }]);
     expect(cart.read()).toEqual([{ variantId: "z", qty: 4 }]);
   });
+  it("write devolve false (e nao notifica) quando o storage recusa", () => {
+    const cb = vi.fn();
+    cart.subscribe(cb);
+    const orig = localStorage.setItem;
+    localStorage.setItem = () => { throw new Error("quota"); };
+    expect(cart.add("a")).toBe(false);
+    localStorage.setItem = orig;
+    expect(cb).not.toHaveBeenCalled();
+    expect(cart.add("a")).toBe(true);
+  });
 });

@@ -30,3 +30,9 @@ export function priceCart(lines: CartLine[], variants: VariantRow[]): { lines: P
   }
   return { lines: out, subtotalCents: out.reduce((s, l) => s + l.lineCents, 0), issues };
 }
+
+/**
+ * Avisos da pagina do carrinho. A correcao automatica regrava o carrinho e dispara nova consulta, que volta sem
+ * avisos: resposta sem avisos NAO apaga os anteriores (so uma acao do usuario limpa).
+ */
+export const mergeNotices = (prev: CartIssue[], fromResponse: CartIssue[]): CartIssue[] => (fromResponse.length > 0 ? fromResponse : prev);
