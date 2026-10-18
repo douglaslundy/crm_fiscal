@@ -1,0 +1,54 @@
+"use client";
+
+import { useState } from "react";
+import { formatBRL } from "@/domain/money";
+
+type Option = { service: string; priceCents: number; days: number };
+const ERRORS: Record<string, string> = {
+  CEP_INVALIDO: "CEP inválido.",
+  FRETE_INDISPONIVEL: "Frete indisponível no momento. Tente novamente.",
+  FRETE_NAO_CONFIGURADO: "Esta loja ainda não configurou o frete.",
+  CARRINHO_VAZIO: "Nenhum item disponível para cotar.",
+  STORE_UNAVAILABLE: "Loja indisponível no momento.",
+};
+
+/** Cotacao de frete por CEP para as linhas dadas (carrinho inteiro ou a variacao escolhida na pagina do produto). */
+export function ShippingQuote({ lines }: { lines: { variantId: string; qty: number }[] }) {
+  const [cep, setCep] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [options, setOptions] = useState<Option[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const key = JSON.stringify(lines);
+  const [forKey, setForKey] = useState(key);
+  if (forKey !== key) { setForKey(key); setOptions(null); setError(null); } // itens mudaram: cotacao antiga nao vale
+
+  async function calc(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null); setOptions(null);
+    try {
+      const r = await fetch("/api/shipping/quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cep, lines }) });
+      const data = await r.json().catch(() => null);
+      if (r.ok) setOptions(data.options);
+      else setError(ERRORS[data?.error] ?? "Não foi possível calcular o frete.");
+    } catch {
+      setError("Não foi possível calcular o frete.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={calc} style={{ margin: "16px 0" }}>
+      <label>Calcular frete{" "}
+        <input value={cep} onChange={(e) => setCep(e.target.value)} inputMode="numeric" placeholder="00000-000" maxLength={9} style={{ width: 110 }} />
+      </label>{" "}
+      <button type="submit" disabled={busy || lines.length === 0 || cep.trim() === ""}>{busy ? "Calculando…" : "Calcular frete"}</button>
+      {error && <p role="alert">{error}</p>}
+      {options && (options.length === 0
+        ? <p role="status">Nenhuma opção de entrega para este CEP.</p>
+        : <ul role="status" style={{ listStyle: "none", padding: 0 }}>
+            {options.map((o) => <li key={o.service}>{o.service}: <strong>{formatBRL(o.priceCents)}</strong> — {o.days} {o.days === 1 ? "dia útil" : "dias úteis"}</li>)}
+          </ul>)}
+    </form>
+  );
+}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { add, read, serverSnapshot, subscribe } from "@/lib/cart-store";
 import { PriceInfo } from "../../catalog-view";
+import { ShippingQuote } from "../../shipping-quote";
 
 type Variant = { id: string; color: string; size: string; priceCents: number; stock: number };
 type Image = { url: string; color: string | null };
@@ -62,6 +63,7 @@ export function ProductOptions({ name, variants, images, pixPercent }: { name: s
         {chosen && inCart >= chosen.stock && chosen.stock > 0 && <p role="status">Você já tem todas as unidades no carrinho.</p>}
         {added === "ok" && <p role="status">Adicionado ao carrinho. <Link href="/carrinho">Ver carrinho</Link></p>}
         {added === "fail" && <p role="alert">Não foi possível salvar o carrinho neste navegador.</p>}
+        {chosen && chosen.stock > 0 && <ShippingQuote lines={[{ variantId: chosen.id, qty: 1 }]} />}
       </div>
     </div>
   );

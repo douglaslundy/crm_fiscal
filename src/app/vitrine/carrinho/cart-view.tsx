@@ -5,6 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { mergeNotices, type CartIssue, type PricedLine } from "@/domain/cart";
 import { formatBRL } from "@/domain/money";
 import { read, remove, replace, serverSnapshot, setQty, subscribe } from "@/lib/cart-store";
+import { ShippingQuote } from "../shipping-quote";
 
 type Priced = { lines: PricedLine[]; subtotalCents: number; issues: CartIssue[] };
 
@@ -86,6 +87,7 @@ export function CartView() {
           ))}
         </ul>
       )}
+      {!empty && <ShippingQuote lines={view.lines.map((l) => ({ variantId: l.variantId, qty: l.qty }))} />}
       <p style={{ fontSize: 18 }}>Subtotal: <strong>{formatBRL(view.subtotalCents)}</strong></p>
       {empty
         ? <button type="button" disabled>Finalizar compra</button>
