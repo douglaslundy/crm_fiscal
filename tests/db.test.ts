@@ -6,5 +6,6 @@ it("conecta no Postgres de teste", async () => {
   await c.connect();
   const r = await c.query("SELECT 1 AS ok");
   await c.end();
+  expect(process.env.DATABASE_URL_TEST).toBeDefined();
   expect(r.rows[0].ok).toBe(1);
 });
