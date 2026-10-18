@@ -5,9 +5,12 @@ import type { Session } from "next-auth";
 import { prisma } from "@/lib/db";
 import { dbForStore } from "@/lib/db-store";
 import { STORE_HOST_HEADER } from "@/lib/host";
+import { MemoryStorage, PNG } from "../../../../tests/fake-storage";
 
 vi.mock("@/auth", async (orig) => ({ ...(await orig<typeof import("@/auth")>()), getSession: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
+const storage = new MemoryStorage();
+vi.mock("@/integrations/storage", async (orig) => ({ ...(await orig<typeof import("@/integrations/storage")>()), getStorage: () => storage }));
 const auth = await import("@/auth");
 const nextHeaders = await import("next/headers");
 const { adminPage } = await import("@/lib/admin-api");
@@ -15,6 +18,7 @@ const getSession = vi.mocked(auth.getSession);
 
 const categories = await import("./categories/route");
 const categoryId = await import("./categories/[id]/route");
+const upload = await import("./upload/route");
 
 let tag: string;
 let planId: string;
@@ -68,7 +72,12 @@ afterEach(async () => {
 afterAll(() => prisma.$disconnect());
 
 type Handler = (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
-type Case = { route: string; method: string; handler: Handler; body?: () => unknown; id?: () => string; ok: number };
+type Case = { route: string; method: string; handler: Handler; body?: () => unknown; multipart?: () => FormData; id?: () => string; ok: number };
+const pngForm = () => {
+  const fd = new FormData();
+  fd.append("file", new Blob([PNG], { type: "image/png" }), "x.png");
+  return fd;
+};
 
 // Uma linha por (rota, metodo); o teste "cobre todas as rotas" falha se alguma rota nova ficar fora da tabela.
 const cases: Case[] = [
@@ -76,13 +85,15 @@ const cases: Case[] = [
   { route: "categories", method: "POST", handler: categories.POST as Handler, ok: 201, body: () => ({ name: "Nova" }) },
   { route: "categories/[id]", method: "PATCH", handler: categoryId.PATCH as Handler, id: () => catA, ok: 200, body: () => ({ name: "Renomeada" }) },
   { route: "categories/[id]", method: "DELETE", handler: categoryId.DELETE as Handler, id: () => catA, ok: 200 },
+  { route: "upload", method: "POST", handler: upload.POST as Handler, ok: 201, multipart: pngForm },
 ];
 
 // Host da loja A e Origin proprio por padrao (como o navegador no painel); valor undefined remove o header.
+// Corpo multipart: sem content-type explicito o Request gera multipart/form-data com boundary.
 const call = (c: Case, extraHeaders: Record<string, string | undefined> = {}) => {
-  const headers = Object.entries({ "content-type": "application/json", origin: "http://localhost", [STORE_HOST_HEADER]: hostA, ...extraHeaders }).filter((e): e is [string, string] => e[1] !== undefined);
+  const headers = Object.entries({ "content-type": c.multipart ? undefined : "application/json", origin: "http://localhost", [STORE_HOST_HEADER]: hostA, ...extraHeaders }).filter((e): e is [string, string] => e[1] !== undefined);
   return c.handler(
-    new Request("http://localhost/api/admin/x", { method: c.method, headers, body: c.body ? JSON.stringify(c.body()) : undefined }),
+    new Request("http://localhost/api/admin/x", { method: c.method, headers, body: c.multipart ? c.multipart() : c.body ? JSON.stringify(c.body()) : undefined }),
     { params: Promise.resolve({ id: c.id?.() ?? "" }) },
   );
 };
@@ -183,9 +194,17 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     getSession.mockResolvedValue(ownerA);
     expect((await call(c, { origin: undefined, "sec-fetch-site": "same-origin" })).status).toBe(c.ok);
   });
-  it.each(mutating.filter((c) => c.body))("$method $route: corpo text/plain 403", async (c) => {
+  it.each(mutating.filter((c) => c.body || c.multipart))("$method $route: corpo text/plain 403", async (c) => {
     getSession.mockResolvedValue(ownerA);
     expect((await call(c, { "content-type": "text/plain" })).status).toBe(403);
+  });
+  it.each(mutating.filter((c) => c.body))("$method $route: corpo multipart 403 (so a rota de upload aceita)", async (c) => {
+    getSession.mockResolvedValue(ownerA);
+    expect((await call({ ...c, body: undefined, multipart: pngForm })).status).toBe(403);
+  });
+  it.each(mutating.filter((c) => c.multipart))("$method $route: corpo JSON 403 (rota multipart)", async (c) => {
+    getSession.mockResolvedValue(ownerA);
+    expect((await call({ ...c, multipart: undefined, body: () => ({ file: "x" }) })).status).toBe(403);
   });
   it.each(mutating)("$method $route: anonimo com Origin estrangeiro recebe 401 (auth antes de CSRF)", async (c) => {
     getSession.mockResolvedValue(null);

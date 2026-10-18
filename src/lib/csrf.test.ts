@@ -32,4 +32,22 @@ describe("assertSameOriginJson", () => {
   it("GET/HEAD/OPTIONS nao sao afetados", () => {
     for (const m of ["GET", "HEAD", "OPTIONS"]) expect(assertSameOriginJson(req(m, { origin: "https://evil.example" }))).toBeNull();
   });
+
+  it.each([
+    ["multipart com Origin proprio", { origin: "http://app.localhost:3000", "content-type": "multipart/form-data; boundary=x" }, true],
+    ["multipart sem Origin, same-origin", { "sec-fetch-site": "same-origin", "content-type": "multipart/form-data; boundary=x" }, true],
+    ["multipart com Origin estrangeiro", { origin: "https://evil.example", "content-type": "multipart/form-data; boundary=x" }, false],
+    ["multipart sem Origin nem Sec-Fetch-Site", { "content-type": "multipart/form-data; boundary=x" }, false],
+    ["JSON na rota multipart", { origin: "http://app.localhost:3000", ...JSON_H }, false],
+    ["text/plain na rota multipart", { origin: "http://app.localhost:3000", "content-type": "text/plain" }, false],
+    ["form urlencoded na rota multipart", { origin: "http://app.localhost:3000", "content-type": "application/x-www-form-urlencoded" }, false],
+  ] as const)("allowMultipart: %s", (_l, headers, ok) => {
+    const r = assertSameOriginJson(req("POST", headers, "x"), { allowMultipart: true });
+    expect(r === null).toBe(ok);
+    if (!ok) expect(r!.status).toBe(403);
+  });
+
+  it("sem a opcao, multipart continua recusado", () => {
+    expect(assertSameOriginJson(req("POST", { origin: "http://app.localhost:3000", "content-type": "multipart/form-data; boundary=x" }, "x"))?.status).toBe(403);
+  });
 });

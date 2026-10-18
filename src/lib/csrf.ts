@@ -12,8 +12,10 @@ const deny = (error: string) => NextResponse.json({ error }, { status: 403 });
  *   POST/PATCH/DELETE cross-site, entao a ausencia vem de cliente nao-navegador (curl/server-to-server, que nao carrega
  *   cookie de vitima) ou de navegador antigo; sem sinal nenhum recusamos (fail closed).
  * - Corpo presente: Content-Type deve ser application/json (form/text/plain cross-site nao dispara preflight).
+ *   `allowMultipart` (so a rota de upload): troca a exigencia por multipart/form-data; Origin continua obrigatorio
+ *   como acima, que e o que barra o form cross-site (multipart nao dispara preflight).
  */
-export function assertSameOriginJson(req: Request): Response | null {
+export function assertSameOriginJson(req: Request, opts: { allowMultipart?: boolean } = {}): Response | null {
   if (SAFE.has(req.method.toUpperCase())) return null;
   const origin = req.headers.get("origin");
   if (origin !== null) {
@@ -27,7 +29,8 @@ export function assertSameOriginJson(req: Request): Response | null {
   }
   if (req.body !== null) {
     const type = (req.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-    if (type !== "application/json") return deny("Content-Type deve ser application/json.");
+    const want = opts.allowMultipart ? "multipart/form-data" : "application/json";
+    if (type !== want) return deny(`Content-Type deve ser ${want}.`);
   }
   return null;
 }

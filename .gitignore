@@ -7,3 +7,4 @@ node_modules/
 .pgdata-test/
 next-env.d.ts
 *.tsbuildinfo
+public/uploads/

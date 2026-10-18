@@ -27,10 +27,10 @@ export async function adminPage(opts: AdminOpts = {}): Promise<AdminCtx & { read
 /**
  * Route handler /api/admin/**: devolve `{ store, session }` ou a resposta de recusa. Ordem: sem host de loja 404;
  * loja desconhecida 404; sem sessao 401; nao e membro desta loja (cliente, conta de outra loja, papel insuficiente) 403;
- * metodo que muda estado: CSRF 403; `write` em loja suspensa/cancelada 403 STORE_SUSPENDED (leituras continuam).
+ * metodo que muda estado: CSRF 403 (`multipart` so na rota de upload: corpo multipart/form-data em vez de JSON); `write` em loja suspensa/cancelada 403 STORE_SUSPENDED (leituras continuam).
  * A permissao e relida do banco a cada chamada (requireStoreMember).
  */
-export async function denyUnlessStoreMember(req: Request, opts: AdminOpts & { write?: boolean } = {}): Promise<AdminCtx | NextResponse> {
+export async function denyUnlessStoreMember(req: Request, opts: AdminOpts & { write?: boolean; multipart?: boolean } = {}): Promise<AdminCtx | NextResponse> {
   const host = req.headers.get(STORE_HOST_HEADER);
   const store = host ? await resolveStoreByHost(host, platformDomain()) : null;
   if (!store) return err(404, "Não encontrado.");
@@ -43,7 +43,7 @@ export async function denyUnlessStoreMember(req: Request, opts: AdminOpts & { wr
     throw e;
   }
   // CSRF depois da autenticacao: quem nao e membro recebe 401/403 sem aprender nada sobre a defesa.
-  const csrf = assertSameOriginJson(req) as NextResponse | null;
+  const csrf = assertSameOriginJson(req, { allowMultipart: opts.multipart }) as NextResponse | null;
   if (csrf) return csrf;
   if (opts.write && isStoreBlocked(store)) return err(403, "STORE_SUSPENDED");
   return { store, session };
