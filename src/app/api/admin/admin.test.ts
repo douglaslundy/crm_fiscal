@@ -29,6 +29,7 @@ const settings = await import("./settings/route");
 const credentials = await import("./credentials/route");
 const team = await import("./team/route");
 const teamId = await import("./team/[id]/route");
+const exportCsv = await import("./export/route");
 const domain = await import("./domain/route");
 const domainVerify = await import("./domain/verify/route");
 const dns = vi.mocked(await import("node:dns/promises"));
@@ -61,7 +62,7 @@ const session = (id: string, kind: "account" | "customer", extra = {}): Session 
 
 beforeEach(async () => {
   tag = Math.random().toString(36).slice(2, 8);
-  planId = (await prisma.plan.create({ data: { name: `T9a-${tag}`, priceCents: 1, staffLimit: 3, customDomain: true, advancedMetrics: false, csvExport: false } })).id;
+  planId = (await prisma.plan.create({ data: { name: `T9a-${tag}`, priceCents: 1, staffLimit: 3, customDomain: true, advancedMetrics: false, csvExport: true } })).id;
   const acc = async (k: string, isMaster = false) => {
     const a = await prisma.account.create({ data: { name: k, email: `${k}-${tag}@t.local`, passwordHash: "x", isMaster } });
     accountIds.push(a.id);
@@ -147,6 +148,7 @@ const cases: Case[] = [
   { route: "team", method: "GET", handler: team.GET as Handler, ok: 200, ownerOnly: true },
   { route: "team", method: "POST", handler: team.POST as Handler, ok: 201, ownerOnly: true, body: () => ({ email: inviteEmail }) },
   { route: "team/[id]", method: "DELETE", handler: teamId.DELETE as Handler, id: () => staffAId, ok: 200, ownerOnly: true },
+  { route: "export", method: "GET", handler: exportCsv.GET as Handler, ok: 200 },
   { route: "domain", method: "GET", handler: domain.GET as Handler, ok: 200, ownerOnly: true },
   { route: "domain", method: "PATCH", handler: domain.PATCH as Handler, ok: 200, ownerOnly: true, body: () => ({ host: `novo-${tag}.com.br` }) },
   { route: "domain/verify", method: "POST", handler: domainVerify.POST as Handler, ok: 200, ownerOnly: true },
