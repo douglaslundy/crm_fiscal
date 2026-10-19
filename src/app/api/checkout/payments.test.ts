@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import type { Session } from "next-auth";
 import { setCredentials } from "@/domain/storeSettings";
 import { fakeGateway } from "@/integrations/payments";
+import { PaymentGatewayError } from "@/integrations/payments/types";
 import { prisma } from "@/lib/db";
 import { STORE_HOST_HEADER } from "@/lib/host";
 
@@ -103,6 +104,9 @@ describe("POST /api/checkout/pay", () => {
     const body = await res.json();
     expect(body).toMatchObject({ status: "PENDING_PAYMENT", pix: { amountCents: 10001 } });
     expect(body.pix.qrCode).toBe((await order(o.id)).pixQrCode);
+    const live = await postPay({ orderId: o.id, method: "card", card: card("pending") });
+    expect(live.status).toBe(409);
+    expect(await live.json()).toEqual({ error: "PIX_EM_ANDAMENTO" });
     const other = await mkOrder(A.id, await mkCustomer(A.id, "x"));
     expect((await postPay({ orderId: other.id, method: "pix" })).status).toBe(404);
     const foreign = await mkOrder(B.id, custB);
@@ -241,10 +245,14 @@ describe("POST /api/webhooks/mercadopago/[storeId]", () => {
     expect((await prisma.variant.findUniqueOrThrow({ where: { id: o.variantId } })).stock).toBe(10);
   });
 
-  it("gateway fora do ar -> 503 (o MP reenvia)", async () => {
+  it("pagamento inexistente no gateway (404) -> 200 sem efeito; gateway fora do ar -> 503 (o MP reenvia)", async () => {
     await setCredentials(A.id, { mpWebhookSecret: SECRET_A });
     vi.spyOn(console, "error").mockImplementation(() => {});
-    expect((await call(A.id, `inexistente-${tag}`)).status).toBe(503);
+    expect((await call(A.id, `inexistente-${tag}`)).status).toBe(200);
+    vi.spyOn(fake, "getPayment").mockRejectedValueOnce(new PaymentGatewayError("Mercado Pago respondeu 500", 500));
+    expect((await call(A.id, `mp-${tag}`)).status).toBe(503);
+    vi.spyOn(fake, "getPayment").mockRejectedValueOnce(new PaymentGatewayError("Mercado Pago indisponível"));
+    expect((await call(A.id, `mp-${tag}`)).status).toBe(503);
   });
 });
 

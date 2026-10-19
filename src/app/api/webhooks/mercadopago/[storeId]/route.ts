@@ -35,6 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ storeId
     const r = await syncPayment(store.id, dataId, await gatewayForStore(store.id));
     return r === "not_found" ? err(404, "Não encontrado.") : ok();
   } catch (e) {
+    if (e instanceof PaymentGatewayError && e.status === 404) return ok(); // pagamento inexistente nesta conta: nada a fazer
     if (e instanceof PaymentGatewayError || e instanceof PaymentsNotConfiguredError) {
       console.error(`[webhook-mp] loja ${store.id}: ${e.message}`);
       return err(503, "Indisponível.");

@@ -38,7 +38,7 @@ export class FakeGateway implements PaymentGateway {
 
   async getPayment(id: string): Promise<RemotePayment> {
     const p = this.payments.get(id);
-    if (!p) throw new PaymentGatewayError(`Pagamento ${id} inexistente`);
+    if (!p) throw new PaymentGatewayError(`Pagamento ${id} inexistente`, 404);
     return { id: p.id, status: p.status, externalReference: p.externalReference, amountCents: p.amountCents, paymentTypeId: p.paymentTypeId };
   }
 

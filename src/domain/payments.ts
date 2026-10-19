@@ -70,7 +70,7 @@ export async function syncPayment(storeId: string, paymentId: string, gw: Paymen
   return applyPaymentUpdate(storeId, order.id, p.status, p.id);
 }
 
-export type PayErrorCode = "NOT_FOUND" | "NOT_PENDING" | "PIX_EXPIRED" | "REJECTED";
+export type PayErrorCode = "NOT_FOUND" | "NOT_PENDING" | "PIX_EXPIRED" | "PIX_LIVE" | "REJECTED";
 export class PayError extends Error {
   name = "PayError";
   constructor(readonly code: PayErrorCode) { super(code); }
@@ -89,6 +89,8 @@ export type PayResult = {
  * Paga um pedido PENDING_PAYMENT do proprio cliente. Pix: QR vigente e reaproveitado; senao cria (chave order:<id>:pix).
  * Cartao: so o token do Brick (chave por token); approved -> PAID; pending -> aguarda o webhook; recusado -> o pedido
  * continua aguardando (outro cartao ate expirar) e o id recusado NAO vira o pagamento atual (o webhook dele e ignorado).
+ * Com Pix vigente o cartao e recusado (PIX_LIVE) antes de cobrar: o Pix segue sendo o pagamento atual (sem cobranca dupla
+ * e sem perder a conciliacao do Pix no cron).
  */
 export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Date()): Promise<PayResult> {
   const { storeId, customerId, orderId } = input;
@@ -118,11 +120,13 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
 
   const card = input.card;
   if (!card) throw new Error("Pagamento com cartão sem token");
+  if (order.pixExpiresAt && order.pixExpiresAt > now) throw new PayError("PIX_LIVE");
   const key = `order:${orderId}:card:${createHash("sha256").update(card.token).digest("hex").slice(0, 16)}`;
   const r = await gw.payCard({ orderId, amountCents: order.totalCents, ...card, payer }, key);
   if (r.status === "approved") {
-    if ((await applyPaymentUpdate(storeId, orderId, "approved", r.id)) === "paid") return { status: "PAID" };
-    throw new PayError("NOT_PENDING"); // cancelado no meio (cron): alerta ja emitido
+    // noop = mesmo pagamento ja aplicado (envio duplicado concorrente): continua pago
+    if ((await applyPaymentUpdate(storeId, orderId, "approved", r.id)) !== "alert") return { status: "PAID" };
+    throw new PayError("NOT_PENDING"); // cancelado no meio (cron) ou pago por outro pagamento: alerta ja emitido
   }
   if (r.status === "pending") {
     const { count } = await db.order.updateMany({ where: pending, data: { mpPaymentId: r.id } });
@@ -137,8 +141,9 @@ const UNPAID_TTL_MS = 60 * 60_000;
 
 /**
  * Cron: cancela (devolvendo estoque) pedidos PENDING_PAYMENT com Pix vencido ou sem Pix ha mais de 60 min (inclui cartao
- * ainda pendente). Antes, pedido com pagamento e conferido no gateway: pago mas webhook perdido vira PAID, nao cancelado;
- * gateway fora do ar = pedido pulado nesta rodada. Ate 200 pedidos por loja por rodada; loja com erro nao para as outras.
+ * ainda pendente; cartao pendente feito depois de um Pix e cancelado no vencimento desse Pix). Antes, pedido com pagamento
+ * e conferido no gateway: pago mas webhook perdido vira PAID, nao cancelado; gateway fora do ar ou alerta (valor divergente,
+ * estorno) = pedido pulado, nunca cancelado as cegas. Ate 200 pedidos por loja por rodada; loja com erro nao para as outras.
  */
 export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: string) => Promise<PaymentGateway> } = {}) {
   const gatewayFor = deps.gatewayFor ?? ((id: string) => gatewayForStore(id));
@@ -154,9 +159,9 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
       let gw: PaymentGateway | undefined;
       for (const o of orders) {
         if (o.mpPaymentId) {
-          gw ??= await gatewayFor(storeId);
           let r;
           try {
+            gw ??= await gatewayFor(storeId);
             r = await syncPayment(storeId, o.mpPaymentId, gw);
           } catch (e) {
             console.error(`[expire-orders] loja ${storeId} pedido ${o.id}: pagamento nao conferido`, e instanceof Error ? e.name : "");
@@ -165,6 +170,7 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
           }
           if (r === "paid") { out.paid++; continue; }
           if (r === "canceled") { out.canceled++; continue; }
+          if (r === "alert") { out.skipped++; continue; } // precisa de humano: nao cancela
         }
         if (await cancelOrder(storeId, o.id)) out.canceled++;
       }

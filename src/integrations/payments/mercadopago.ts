@@ -35,9 +35,9 @@ export class MercadoPagoGateway implements PaymentGateway {
       });
     } catch (e) {
       // sem detalhe da excecao na mensagem: nada de token/URL interna em log de erro
-      throw new PaymentGatewayError(`Mercado Pago indisponível em ${method} ${path.split("/").slice(0, 3).join("/")}`, { cause: e });
+      throw new PaymentGatewayError(`Mercado Pago indisponível em ${method} ${path.split("/").slice(0, 3).join("/")}`, undefined, { cause: e });
     }
-    if (!res.ok) throw new PaymentGatewayError(`Mercado Pago respondeu ${res.status} em ${method} ${path.split("/").slice(0, 3).join("/")}`);
+    if (!res.ok) throw new PaymentGatewayError(`Mercado Pago respondeu ${res.status} em ${method} ${path.split("/").slice(0, 3).join("/")}`, res.status);
     try {
       return JSON.parse(await res.text());
     } catch {

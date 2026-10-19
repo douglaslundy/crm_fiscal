@@ -24,6 +24,7 @@ const ERRORS: Record<PayErrorCode, [number, string]> = {
   NOT_FOUND: [404, "Não encontrado."],
   NOT_PENDING: [409, "PEDIDO_NAO_PENDENTE"],
   PIX_EXPIRED: [409, "PIX_EXPIRADO"],
+  PIX_LIVE: [409, "PIX_EM_ANDAMENTO"],
   REJECTED: [402, "PAGAMENTO_RECUSADO"],
 };
 

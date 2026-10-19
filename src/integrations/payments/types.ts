@@ -24,6 +24,8 @@ export interface PaymentGateway {
 /** Falha de rede/HTTP do gateway. A mensagem nunca leva token nem corpo da resposta. */
 export class PaymentGatewayError extends Error {
   name = "PaymentGatewayError";
+  /** Status HTTP do gateway quando houve resposta (404 = pagamento inexistente); sem status = rede/timeout. */
+  constructor(message: string, readonly status?: number, opts?: ErrorOptions) { super(message, opts); }
 }
 
 /** Loja sem access token do Mercado Pago em producao (em desenvolvimento cai no FakeGateway). */

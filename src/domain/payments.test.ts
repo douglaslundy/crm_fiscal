@@ -123,6 +123,35 @@ describe("payOrder", () => {
       .rejects.toMatchObject({ code: "PIX_EXPIRED" });
   });
 
+  it("Pix vigente -> cartao recusado com PIX_LIVE sem cobrar nem trocar o pagamento atual; cron concilia o Pix", async () => {
+    const o = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "pix" }, fake);
+    const { mpPaymentId: pixId } = await order(o.id);
+    const size = fake.payments.size;
+    for (const t of ["pending", "approved"]) {
+      await expect(payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "card", card: card(t) }, fake)).rejects.toMatchObject({ code: "PIX_LIVE" });
+    }
+    expect(fake.payments.size).toBe(size);
+    expect(await order(o.id)).toMatchObject({ status: "PENDING_PAYMENT", mpPaymentId: pixId });
+    remote(pixId!, o.id, "approved", 10001, "bank_transfer");
+    await expireOrders(new Date(Date.now() + 31 * 60_000));
+    expect((await order(o.id)).status).toBe("PAID");
+  });
+
+  it("mesmo cartao enviado duas vezes ao mesmo tempo -> as duas respostas PAID (paid + noop)", async () => {
+    const o = await mkOrder(S, cust);
+    // as duas leem o pedido PENDING antes de qualquer cobranca (barreira no payCard)
+    let release!: () => void;
+    const both = new Promise<void>((r) => { release = r; });
+    let n = 0;
+    const gw: PaymentGateway = {
+      payPix: fake.payPix.bind(fake), getPayment: fake.getPayment.bind(fake),
+      payCard: async (input, key) => { if (++n === 2) release(); await both; return fake.payCard(input, key); },
+    };
+    const pay2 = () => payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "card", card: card("approved") }, gw);
+    expect(await Promise.all([pay2(), pay2()])).toEqual([{ status: "PAID" }, { status: "PAID" }]);
+  });
+
   it("pedido de outro cliente ou de outra loja -> NOT_FOUND; pedido pago -> NOT_PENDING", async () => {
     const other = await mkCustomer(S, "o");
     const o = await mkOrder(S, other);
@@ -239,18 +268,55 @@ describe("expireOrders", () => {
     expect(await stock(old.variantId)).toBe(10);
   });
 
-  it("loja com falha nao para as outras; gateway fora do ar pula o pedido (nao cancela as cegas)", async () => {
+  it("gateway da loja falha: so pedidos com pagamento sao pulados; expiracao simples de 60 min ainda cancela", async () => {
     const T = await mkStore("t");
-    const failing = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `f-${tag}` });
-    const tOld = await mkOrder(T, await mkCustomer(T, "t"), { createdAt: ago(61) });
+    const withPayment = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `f-${tag}` });
+    const plain = await mkOrder(S, cust, { createdAt: ago(61) });
     const down = await mkOrder(T, await mkCustomer(T, "u"), { pixExpiresAt: ago(1), mpPaymentId: `nao-existe-${tag}` });
     alerts();
     const gatewayFor = async (id: string): Promise<PaymentGateway> => { if (id === S) throw new Error("boom"); return fake; };
     const r = await expireOrders(now, { gatewayFor });
-    expect(r.failedStores).toContain(S);
-    expect((await order(failing.id)).status).toBe("PENDING_PAYMENT");
-    expect((await order(tOld.id)).status).toBe("CANCELED");
+    expect(r.failedStores).not.toContain(S);
+    expect((await order(withPayment.id)).status).toBe("PENDING_PAYMENT");
+    expect((await order(plain.id)).status).toBe("CANCELED");
+    expect(await stock(plain.variantId)).toBe(10);
     expect((await order(down.id)).status).toBe("PENDING_PAYMENT");
+    expect(r.skipped).toBeGreaterThanOrEqual(2);
+  });
+
+  it("erro no nivel da loja nao para as outras lojas", async () => {
+    const T = await mkStore("t");
+    const first = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `f-${tag}`, createdAt: ago(90) });
+    const gone = await mkOrder(S, cust, { createdAt: ago(61) });
+    const tOld = await mkOrder(T, await mkCustomer(T, "t"), { createdAt: ago(61) });
+    alerts();
+    // apaga o pedido seguinte de S no meio da rodada: o cancelamento dele lanca OrderNotFoundError (falha da loja)
+    const gatewayFor = async (id: string): Promise<PaymentGateway> => {
+      if (id === S) { await prisma.order.delete({ where: { id: gone.id } }); throw new Error("boom"); }
+      return fake;
+    };
+    const r = await expireOrders(now, { gatewayFor });
+    expect(r.failedStores).toContain(S);
+    expect((await order(first.id)).status).toBe("PENDING_PAYMENT");
+    expect((await order(tOld.id)).status).toBe("CANCELED");
+  });
+
+  it("syncPayment com alerta (valor divergente) -> pula o pedido, nunca cancela", async () => {
+    const o = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `mm-${tag}` });
+    remote(`mm-${tag}`, o.id, "approved", 1, "bank_transfer");
+    const spy = alerts();
+    const r = await expireOrders(now);
+    expect((await order(o.id)).status).toBe("PENDING_PAYMENT");
+    expect(await stock(o.variantId)).toBe(8);
     expect(r.skipped).toBeGreaterThanOrEqual(1);
+    expect(spy.mock.calls.some((c) => String(c[0]).includes("PAYMENT_AMOUNT_MISMATCH"))).toBe(true);
+  });
+
+  it("cartao pendente depois do Pix vencido -> cancelado no vencimento do Pix", async () => {
+    const o = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `card-${tag}`, createdAt: ago(31) });
+    remote(`card-${tag}`, o.id, "pending");
+    await expireOrders(now);
+    expect((await order(o.id)).status).toBe("CANCELED");
+    expect(await stock(o.variantId)).toBe(10);
   });
 });
