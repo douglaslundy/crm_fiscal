@@ -8,6 +8,8 @@ import {
   CategoryInUseError, CategoryNotFoundError, CategoryValidationError, MaxDepthError, ParentCycleError, ParentNotFoundError,
 } from "@/domain/categories";
 import { PlanLimitError, StoreNotFoundError, planLimitToHttp } from "@/domain/entitlements";
+import { AdminOrderError } from "@/domain/adminOrders";
+import { OrderNotFoundError } from "@/domain/orders";
 import { ProductError } from "@/domain/products";
 import { SettingsError } from "@/domain/storeSettings";
 import { StoreSuspendedError } from "@/domain/subscription";
@@ -72,5 +74,7 @@ export function domainError(e: unknown): NextResponse {
   if (e instanceof ParentCycleError) return err(400, "PARENT_CYCLE");
   if (e instanceof MaxDepthError) return err(400, "MAX_DEPTH");
   if (e instanceof CategoryValidationError) return err(400, "CATEGORY_INVALID");
+  if (e instanceof AdminOrderError) return err(e.status, e.code, { message: e.message });
+  if (e instanceof OrderNotFoundError) return err(404, "ORDER_NOT_FOUND");
   throw e;
 }

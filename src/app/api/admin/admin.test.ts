@@ -19,6 +19,7 @@ const getSession = vi.mocked(auth.getSession);
 
 const categories = await import("./categories/route");
 const categoryId = await import("./categories/[id]/route");
+const orderId = await import("./orders/[id]/route");
 const upload = await import("./upload/route");
 const products = await import("./products/route");
 const productId = await import("./products/[id]/route");
@@ -44,6 +45,8 @@ let varA1: string;
 let varA2: string;
 let prodB: string;
 let varB: string;
+let ordA: string;
+let ordB: string;
 let ownerA: Session;
 let staffA: Session;
 let staffAId: string;
@@ -89,6 +92,11 @@ beforeEach(async () => {
   };
   [prodA, varA1, varA2] = await mkProduct(storeA, null, ["sku-a1", "sku-a2"]);
   [prodB, varB] = await mkProduct(storeB, null, ["sku-b1"]);
+  const mkOrder = async (storeId: string) => {
+    const c = await prisma.customer.create({ data: { storeId, name: "Cli", email: `c-${storeId}@t.local`, cpf: "52998224725", phone: "11999999999", passwordHash: "x" } });
+    return (await prisma.order.create({ data: { storeId, customerId: c.id, status: "PAID", subtotalCents: 100, shippingCents: 0, totalCents: 100, shippingService: "PAC", addressSnapshot: {} } })).id;
+  };
+  [ordA, ordB] = [await mkOrder(storeA), await mkOrder(storeB)];
   ownerA = session(oa, "account");
   staffA = session(sa, "account");
   ownerB = session(ob, "account");
@@ -122,6 +130,7 @@ const cases: Case[] = [
   { route: "categories", method: "POST", handler: categories.POST as Handler, ok: 201, body: () => ({ name: "Nova" }) },
   { route: "categories/[id]", method: "PATCH", handler: categoryId.PATCH as Handler, id: () => catA, ok: 200, body: () => ({ name: "Renomeada" }) },
   { route: "categories/[id]", method: "DELETE", handler: categoryId.DELETE as Handler, id: () => catA, ok: 200 },
+  { route: "orders/[id]", method: "PATCH", handler: orderId.PATCH as Handler, id: () => ordA, ok: 200, body: () => ({ status: "SHIPPED", trackingCode: "BR1" }) },
   { route: "upload", method: "POST", handler: upload.POST as Handler, ok: 201, multipart: pngForm },
   { route: "products", method: "GET", handler: products.GET as Handler, ok: 200 },
   { route: "products", method: "POST", handler: products.POST as Handler, ok: 201, body: newProduct },
@@ -233,6 +242,7 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     expect(await prisma.category.count({ where: { storeId: storeA } })).toBe(1);
     expect(await prisma.product.findMany({ where: { storeId: storeA }, select: { id: true, weightGrams: true } })).toEqual([{ id: prodA, weightGrams: 300 }]);
     expect(await prisma.variant.count({ where: { productId: prodA, stock: 3 } })).toBe(2);
+    expect(await prisma.order.findUniqueOrThrow({ where: { id: ordA }, select: { status: true } })).toEqual({ status: "PAID" });
     expect(storage.files.size).toBe(0);
   });
 
@@ -283,6 +293,32 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     getSession.mockResolvedValue(ownerA);
     await call(cases.find((c) => c.method === "DELETE")!, { origin: "https://evil.example" });
     expect(await prisma.category.findUniqueOrThrow({ where: { id: catA } })).toMatchObject({ name: "Cat A" });
+  });
+});
+
+describe("/api/admin/orders/[id]: comportamento", () => {
+  const patch = (id: string, body: unknown) => orderId.PATCH(
+    new Request("http://localhost/api/admin/orders/x", { method: "PATCH", headers: { "content-type": "application/json", origin: "http://localhost", [STORE_HOST_HEADER]: hostA }, body: JSON.stringify(body) }),
+    { params: Promise.resolve({ id }) },
+  );
+  beforeEach(() => getSession.mockResolvedValue(staffA));
+  it("pedido de outra loja: 404 e nada muda", async () => {
+    const res = await patch(ordB, { status: "SHIPPED" });
+    expect([res.status, (await res.json()).error]).toEqual([404, "ORDER_NOT_FOUND"]);
+    expect((await patch("nao-existe", { trackingCode: "x" })).status).toBe(404);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: ordB } })).status).toBe("PAID");
+  });
+  it("transicao invalida 409, cancelar pago 409 REEMBOLSO_MANUAL, corpo invalido 400", async () => {
+    const r1 = await patch(ordA, { status: "DELIVERED" });
+    expect([r1.status, (await r1.json()).error]).toEqual([409, "INVALID_TRANSITION"]);
+    const r2 = await patch(ordA, { status: "CANCELED" });
+    const j2 = await r2.json();
+    expect([r2.status, j2.error]).toEqual([409, "REEMBOLSO_MANUAL"]);
+    expect(j2.message).toMatch(/reembolso/i);
+    expect((await patch(ordA, {})).status).toBe(400);
+    expect((await patch(ordA, { status: "PAID" })).status).toBe(400);
+    expect((await patch(ordA, { status: "SHIPPED", trackingCode: "x".repeat(61) })).status).toBe(400);
+    expect((await prisma.order.findUniqueOrThrow({ where: { id: ordA } })).status).toBe("PAID");
   });
 });
 
