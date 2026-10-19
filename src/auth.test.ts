@@ -190,7 +190,7 @@ describe("POST /api/register-customer", () => {
   const post = (h: string | null, data: unknown) =>
     register(new Request("http://x/api/register-customer", {
       method: "POST",
-      headers: { "content-type": "application/json", ...(h ? { "x-store-host": h } : {}) },
+      headers: { "content-type": "application/json", origin: "http://x", ...(h ? { "x-store-host": h } : {}) },
       body: JSON.stringify(data),
     }));
 
@@ -220,13 +220,22 @@ describe("POST /api/register-customer", () => {
   it("429 apos 10 cadastros do mesmo IP na mesma loja", async () => {
     const ip = { "x-forwarded-for": `10.0.2.${tag}` };
     const send = (s: { slug: string }) => register(new Request("http://x/api/register-customer", {
-      method: "POST", headers: { "content-type": "application/json", "x-store-host": host(s), ...ip }, body: "{}",
+      method: "POST", headers: { "content-type": "application/json", origin: "http://x", "x-store-host": host(s), ...ip }, body: "{}",
     }));
     for (let i = 0; i < 10; i++) expect((await send(A)).status).toBe(400);
     const res = await send(A);
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBeTruthy();
     expect((await send(B)).status).toBe(400);
+  });
+  it("CSRF: origem cruzada ou corpo nao-JSON -> 403, nada criado", async () => {
+    const send = (headers: Record<string, string>) => register(new Request("http://x/api/register-customer", {
+      method: "POST", headers: { "x-store-host": host(A), ...headers }, body: JSON.stringify(body(`csrf-${tag}@t.local`)),
+    }));
+    expect((await send({ "content-type": "application/json", origin: "http://evil.example" })).status).toBe(403);
+    expect((await send({ "content-type": "text/plain", origin: "http://x" })).status).toBe(403);
+    expect((await send({ "content-type": "application/json" })).status).toBe(403); // sem Origin nem Sec-Fetch-Site
+    expect(await dbForStore(A.id).customer.count()).toBe(0);
   });
   it("404 sem loja no host; 403 para loja suspensa ou cancelada", async () => {
     expect((await post(null, body(`x-${tag}@t.local`))).status).toBe(404);

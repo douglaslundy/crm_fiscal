@@ -11,6 +11,7 @@ export type Field = {
   defaultValue?: string | number | boolean | null;
   required?: boolean;
   nullable?: boolean; // number vazio vira null
+  max?: number; // so dica do navegador (number); o servidor valida
 };
 
 const MESSAGES: Record<string, string> = {
@@ -31,7 +32,7 @@ const MESSAGES: Record<string, string> = {
   MAX_DEPTH: "No máximo 3 níveis de categorias.",
   STORE_SUSPENDED: "Loja suspensa: o painel está somente leitura.",
   CEP_INVALID: "CEP inválido. Use 8 dígitos, ex.: 37175-000.",
-  PIX_DISCOUNT_INVALID: "O desconto no Pix deve ser um número inteiro de 0 a 100.",
+  PIX_DISCOUNT_INVALID: "O desconto no Pix deve ser um número inteiro de 0 a 50.",
   ACCOUNT_NOT_FOUND: "O usuário precisa se cadastrar primeiro.",
   ALREADY_MEMBER: "Este usuário já faz parte da equipe.",
   MEMBER_NOT_FOUND: "Membro não encontrado.",
@@ -90,7 +91,7 @@ export function MasterForm(p: {
           ) : f.type === "checkbox" ? (
             <input type="checkbox" name={f.name} defaultChecked={Boolean(f.defaultValue)} />
           ) : (
-            <input type={f.type ?? "text"} name={f.name} defaultValue={f.defaultValue == null ? "" : String(f.defaultValue)} required={f.required} min={f.type === "number" ? 0 : undefined} />
+            <input type={f.type ?? "text"} name={f.name} defaultValue={f.defaultValue == null ? "" : String(f.defaultValue)} required={f.required} min={f.type === "number" ? 0 : undefined} max={f.max} />
           )}
         </label>
       ))}

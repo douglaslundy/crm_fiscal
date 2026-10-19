@@ -4,7 +4,7 @@ import { getSettings, updateSettings } from "@/domain/storeSettings";
 import { denied, denyUnlessStoreMember } from "@/lib/admin-api";
 import { domainError, parseBody } from "@/lib/master-api";
 
-// CEP e faixa do desconto sao validados no dominio; aqui so o formato do JSON. OWNER e STAFF podem alterar.
+// CEP e faixa do desconto (0..MAX_PIX_DISCOUNT) sao validados no dominio (codigo PIX_DISCOUNT_INVALID); aqui so o formato do JSON. OWNER e STAFF podem alterar.
 const Body = z.object({ originCep: z.string().optional(), pixDiscountPercent: z.number().optional() });
 
 export async function GET(req: Request) {

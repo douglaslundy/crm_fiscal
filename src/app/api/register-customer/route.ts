@@ -7,6 +7,7 @@ import { dbForStore } from "@/lib/db-store";
 import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
 import { resolveStoreByHost } from "@/lib/tenant";
 import { isStoreBlocked } from "@/domain/subscription";
+import { assertSameOriginJson } from "@/lib/csrf";
 import { clientIp, createRateLimiter } from "@/lib/rate-limit";
 
 const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 });
@@ -23,6 +24,8 @@ const err = (status: number, error: string, extra?: object) => NextResponse.json
 
 /** Cadastro de comprador na loja do host (header do middleware, nunca do corpo). */
 export async function POST(req: Request) {
+  const csrf = assertSameOriginJson(req);
+  if (csrf) return csrf;
   const host = req.headers.get(STORE_HOST_HEADER);
   const store = host ? await resolveStoreByHost(host, platformDomain()) : null;
   if (!store) return err(404, "Loja não encontrada.");

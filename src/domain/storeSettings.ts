@@ -14,6 +14,8 @@ export class SettingsError extends Error {
   }
 }
 
+/** Teto do desconto no Pix (%): evita erro de digitacao vendendo quase de graca. */
+export const MAX_PIX_DISCOUNT = 50;
 const DEFAULTS = { originCep: "37175000", pixDiscountPercent: "0" };
 
 export async function getSettings(storeId: string): Promise<{ originCep: string; pixDiscountPercent: number }> {
@@ -29,7 +31,7 @@ export async function updateSettings(storeId: string, input: { originCep?: strin
   const cep = input.originCep === undefined ? undefined : normalizeCep(input.originCep);
   if (cep === null) throw new SettingsError(400, "CEP_INVALID");
   const pix = input.pixDiscountPercent;
-  if (pix !== undefined && !(Number.isInteger(pix) && pix >= 0 && pix <= 100)) throw new SettingsError(400, "PIX_DISCOUNT_INVALID");
+  if (pix !== undefined && !(Number.isInteger(pix) && pix >= 0 && pix <= MAX_PIX_DISCOUNT)) throw new SettingsError(400, "PIX_DISCOUNT_INVALID");
   await dbForStore(storeId).$transaction(async (tx) => {
     if (cep !== undefined) await upsert(tx, storeId, "originCep", cep);
     if (pix !== undefined) await upsert(tx, storeId, "pixDiscountPercent", String(pix));

@@ -338,11 +338,31 @@ describe("expireOrders", () => {
     expect(spy.mock.calls.some((c) => String(c[0]).includes("PAYMENT_AMOUNT_MISMATCH"))).toBe(true);
   });
 
-  it("cartao pendente depois do Pix vencido -> cancelado no vencimento do Pix", async () => {
+  it("cartao pendente depois do Pix vencido -> nao cancela no vencimento do Pix (cartao ainda pode aprovar)", async () => {
     const o = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `card-${tag}`, createdAt: ago(31) });
     remote(`card-${tag}`, o.id, "pending");
+    const r = await expireOrders(now);
+    expect((await order(o.id)).status).toBe("PENDING_PAYMENT");
+    expect(await stock(o.variantId)).toBe(8);
+    expect(r.skipped).toBeGreaterThanOrEqual(1);
+  });
+
+  it("cartao em analise (in_process -> pending): pulado aos 61 min com estoque reservado; cancelado apos 72 h", async () => {
+    const young = await mkOrder(S, cust, { mpPaymentId: `ip-a-${tag}`, createdAt: ago(61) });
+    remote(`ip-a-${tag}`, young.id, "pending");
+    const old = await mkOrder(S, cust, { mpPaymentId: `ip-b-${tag}`, createdAt: ago(73 * 60) });
+    remote(`ip-b-${tag}`, old.id, "pending");
+    await expireOrders(now);
+    expect((await order(young.id)).status).toBe("PENDING_PAYMENT");
+    expect(await stock(young.variantId)).toBe(8);
+    expect((await order(old.id)).status).toBe("CANCELED");
+    expect(await stock(old.variantId)).toBe(10);
+  });
+
+  it("Pix pendente vencido continua cancelado no vencimento (Pix vencido nao paga mais)", async () => {
+    const o = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `pp-${tag}`, createdAt: ago(31) });
+    remote(`pp-${tag}`, o.id, "pending", 10001, "bank_transfer");
     await expireOrders(now);
     expect((await order(o.id)).status).toBe("CANCELED");
-    expect(await stock(o.variantId)).toBe(10);
   });
 });

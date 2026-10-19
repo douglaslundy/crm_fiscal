@@ -38,6 +38,8 @@ E2E (Playwright, fluxo completo lojista → cliente → pagamento → suspensão
 
 `NEXTAUTH_URL` e `VERCEL_API_TOKEN` não são lidas pelo código (a API de domínios da Vercel não é chamada; ver limites).
 
+Fora da Vercel (servidor próprio, Docker etc.), o next-auth precisa de `AUTH_TRUST_HOST=true` para confiar no host da requisição (subdomínios e domínios próprios das lojas).
+
 ## Checklist de deploy (dono da plataforma)
 
 1. Criar o projeto na Vercel apontando para este repositório e um PostgreSQL gerenciado.
@@ -65,3 +67,6 @@ E2E (Playwright, fluxo completo lojista → cliente → pagamento → suspensão
 - A exibição do valor da parcela arredonda para baixo.
 - Mesma chave de idempotência com carrinho diferente devolve o pedido antigo.
 - Os números dos planos (Start etc.) são editáveis pelo master.
+- Clientes de uma loja suspensa ou cancelada não conseguem entrar nem ver seus pedidos.
+- O lojista não consegue cancelar um pedido enquanto houver pagamento em andamento (Pix vigente ou cartão em análise): 409 `PAGAMENTO_EM_ABERTO`; o cron cancela no vencimento (cartão em análise: até 72 h).
+- Desconto no Pix limitado a 50%.

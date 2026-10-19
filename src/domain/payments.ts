@@ -54,7 +54,7 @@ export async function applyPaymentUpdate(storeId: string, orderId: string, statu
  * ser desta loja (senao "not_found", nada muda). approved com valor diferente do esperado -> alerta, nao vira PAID.
  * Pix: esperado = valor gravado na criacao do QR (pixAmountCents); pedido antigo sem ele recalcula com o desconto atual.
  */
-export async function syncPayment(storeId: string, paymentId: string, gw: PaymentGateway): Promise<UpdateResult | "not_found"> {
+export async function syncPayment(storeId: string, paymentId: string, gw: PaymentGateway): Promise<UpdateResult | "not_found" | "card_pending"> {
   const p = await gw.getPayment(paymentId);
   const order = p.externalReference
     ? await dbForStore(storeId).order.findFirst({ where: { id: p.externalReference }, select: { id: true, totalCents: true, pixAmountCents: true } })
@@ -70,6 +70,8 @@ export async function syncPayment(storeId: string, paymentId: string, gw: Paymen
       return "alert";
     }
   }
+  // cartao pendente/em analise ainda pode aprovar (Pix pendente vence com o QR): o cron nao cancela no prazo curto
+  if (p.status === "pending" && !isPixType(p.paymentTypeId)) return "card_pending";
   return applyPaymentUpdate(storeId, order.id, p.status, p.id);
 }
 
@@ -142,12 +144,14 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
 
 const EXPIRE_BATCH = 200;
 const UNPAID_TTL_MS = 60 * 60_000;
+const CARD_PENDING_TTL_MS = 72 * 60 * 60_000; // cartao em analise: reserva o estoque ate 72 h da criacao do pedido
 
 /**
  * Cron: cancela (devolvendo estoque) pedidos PENDING_PAYMENT com Pix vencido ou sem Pix ha mais de 60 min (inclui cartao
  * ainda pendente; cartao pendente feito depois de um Pix e cancelado no vencimento desse Pix). Antes, pedido com pagamento
  * e conferido no gateway: pago mas webhook perdido vira PAID, nao cancelado; gateway fora do ar ou alerta (valor divergente,
  * estorno) = pedido pulado, nunca cancelado as cegas. Ate 200 pedidos por loja por rodada; loja com erro nao para as outras.
+ * Cartao ainda pendente/em analise no gateway: pulado ate 72 h da criacao do pedido; depois cancela como os demais.
  * Pagamento inexistente no gateway (404) nunca concilia sozinho: um alerta PAYMENT_UNRECONCILABLE por rodada lista os pedidos.
  */
 export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: string) => Promise<PaymentGateway> } = {}) {
@@ -161,7 +165,7 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
   const missing: { storeId: string; orderId: string }[] = [];
   for (const { id: storeId } of stores) {
     try {
-      const orders = await dbForStore(storeId).order.findMany({ where: due, select: { id: true, mpPaymentId: true }, orderBy: { createdAt: "asc" }, take: EXPIRE_BATCH });
+      const orders = await dbForStore(storeId).order.findMany({ where: due, select: { id: true, mpPaymentId: true, createdAt: true }, orderBy: { createdAt: "asc" }, take: EXPIRE_BATCH });
       let gw: PaymentGateway | undefined;
       for (const o of orders) {
         if (o.mpPaymentId) {
@@ -178,6 +182,7 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
           if (r === "paid") { out.paid++; continue; }
           if (r === "canceled") { out.canceled++; continue; }
           if (r === "alert") { out.skipped++; continue; } // precisa de humano: nao cancela
+          if (r === "card_pending" && now.getTime() - o.createdAt.getTime() < CARD_PENDING_TTL_MS) { out.skipped++; continue; }
         }
         if (await cancelOrder(storeId, o.id)) out.canceled++;
       }

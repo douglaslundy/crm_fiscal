@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { PlanLimitError } from "./entitlements";
-import { SettingsError, getCredentialStatus, getSettings, getStoreCredentials, setCredentials, updateSettings } from "./storeSettings";
+import { MAX_PIX_DISCOUNT, SettingsError, getCredentialStatus, getSettings, getStoreCredentials, setCredentials, updateSettings } from "./storeSettings";
 import { inviteStaff, listTeam, removeMember } from "./team";
 import { getDomain, setDomain, validateCustomHost, verifyDomain } from "./customDomain";
 
@@ -39,6 +39,10 @@ afterAll(() => prisma.$disconnect());
 const code = (p: Promise<unknown>) => p.then(() => "ok", (e) => (e instanceof SettingsError ? `${e.status} ${e.code}` : e instanceof PlanLimitError ? e.code : String(e)));
 
 describe("configuracoes", () => {
+  it("desconto Pix: teto de 50%", async () => {
+    await updateSettings(storeId, { pixDiscountPercent: MAX_PIX_DISCOUNT });
+    expect((await getSettings(storeId)).pixDiscountPercent).toBe(50);
+  });
   it("le padrao e atualiza CEP (normalizado) e desconto Pix", async () => {
     expect(await getSettings(storeId)).toEqual({ originCep: "37175000", pixDiscountPercent: 0 });
     await updateSettings(storeId, { originCep: "01310-100", pixDiscountPercent: 5 });
@@ -50,9 +54,9 @@ describe("configuracoes", () => {
     await updateSettings(storeId, { pixDiscountPercent: 10 });
     expect(await getSettings(storeId)).toEqual({ originCep: "37175000", pixDiscountPercent: 10 });
   });
-  it("CEP invalido e desconto fora de 0..100 ou fracionado -> 400", async () => {
+  it("CEP invalido e desconto fora de 0..50 ou fracionado -> 400", async () => {
     expect(await code(updateSettings(storeId, { originCep: "123" }))).toBe("400 CEP_INVALID");
-    for (const p of [-1, 101, 2.5, NaN]) expect(await code(updateSettings(storeId, { pixDiscountPercent: p }))).toBe("400 PIX_DISCOUNT_INVALID");
+    for (const p of [-1, 51, 101, 2.5, NaN]) expect(await code(updateSettings(storeId, { pixDiscountPercent: p }))).toBe("400 PIX_DISCOUNT_INVALID");
     expect(await getSettings(storeId)).toEqual({ originCep: "37175000", pixDiscountPercent: 0 });
   });
 });

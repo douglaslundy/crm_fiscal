@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
+import { assertSameOriginJson } from "@/lib/csrf";
 import { clientIp, createRateLimiter } from "@/lib/rate-limit";
 import { EmailExistsError, PlanNotFoundError, SlugInvalidError, SlugTakenError, createStore } from "@/domain/stores";
 
@@ -20,6 +21,8 @@ const err = (status: number, error: string, extra?: object) => NextResponse.json
 
 /** Cadastro de lojista; so no host da plataforma. */
 export async function POST(req: Request) {
+  const csrf = assertSameOriginJson(req);
+  if (csrf) return csrf;
   if (req.headers.get(STORE_HOST_HEADER)) return err(404, "Não encontrado.");
   const rl = signupLimiter.check(clientIp(req.headers));
   if (!rl.ok) return NextResponse.json({ error: "MUITAS_REQUISICOES" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });

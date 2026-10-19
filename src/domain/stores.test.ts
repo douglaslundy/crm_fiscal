@@ -120,7 +120,7 @@ describe("isSlugAvailable", () => {
 
 describe("POST /api/signup", () => {
   const post = (body: unknown, headers: Record<string, string> = {}) =>
-    POST(new Request("http://localhost/api/signup", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": `10.3.${Math.random()}`, ...headers }, body: JSON.stringify(body) })); // IP novo: fora do limite de cadastros
+    POST(new Request("http://localhost/api/signup", { method: "POST", headers: { "content-type": "application/json", origin: "http://localhost", "x-forwarded-for": `10.3.${Math.random()}`, ...headers }, body: JSON.stringify(body) })); // IP novo: fora do limite de cadastros
 
   it("201 sem hash; 409 para email e slug repetidos; 400 invalido", async () => {
     const i = input("o");

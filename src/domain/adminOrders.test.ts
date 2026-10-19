@@ -19,12 +19,14 @@ async function mkStore(k: string) {
 async function mkCustomer(storeId: string, k: string) {
   return (await prisma.customer.create({ data: { storeId, name: `Cli ${k}`, email: `${k}-${tag}@t.local`, cpf: "52998224725", phone: "11999999999", passwordHash: "x" } })).id;
 }
-async function mkOrder(storeId: string, customerId: string, status: OrderStatus, o: { total?: number; createdAt?: Date; items?: boolean } = {}) {
+type Pay = { mpPaymentId?: string | null; pixExpiresAt?: Date | null };
+// padrao: Pix ja vencido (nenhum pagamento vivo)
+async function mkOrder(storeId: string, customerId: string, status: OrderStatus, o: { total?: number; createdAt?: Date; items?: boolean; pay?: Pay } = {}) {
   const ord = await prisma.order.create({
     data: {
       storeId, customerId, status, subtotalCents: o.total ?? 1000, shippingCents: 0, totalCents: o.total ?? 1000, shippingService: "PAC",
       addressSnapshot: { cep: "01001000", street: "Rua", number: "1", district: "Sé", city: "SP", state: "SP" }, createdAt: o.createdAt,
-      mpPaymentId: `mp-${Math.random()}`, pixQrCode: "segredo-pix",
+      mpPaymentId: `mp-${Math.random()}`, pixQrCode: "segredo-pix", pixExpiresAt: new Date(Date.now() - 60_000), ...o.pay,
     },
   });
   if (o.items) await prisma.orderItem.create({ data: { storeId, orderId: ord.id, variantId: variant, productName: "P", sku: "S", color: "Azul", size: "G", unitPriceCents: 1000, quantity: 2 } });
@@ -104,6 +106,16 @@ describe("updateOrder: cancelamento", () => {
     await expect(updateOrder(S, id, { status: "CANCELED" })).rejects.toMatchObject({ code: "REEMBOLSO_MANUAL", status: 409 });
     expect(await statusOf(id)).toBe(st);
     expect((await prisma.variant.findUniqueOrThrow({ where: { id: variant } })).stock).toBe(5);
+  });
+  it("pagamento ainda vivo (Pix vigente ou cartao pendente sem Pix) = 409 PAGAMENTO_EM_ABERTO, estoque intacto", async () => {
+    const pix = await mkOrder(S, cust, "PENDING_PAYMENT", { items: true, pay: { pixExpiresAt: new Date(Date.now() + 10 * 60_000) } });
+    await expect(updateOrder(S, pix, { status: "CANCELED" })).rejects.toMatchObject({ code: "PAGAMENTO_EM_ABERTO", status: 409, message: expect.stringMatching(/aguarde/i) });
+    const card = await mkOrder(S, cust, "PENDING_PAYMENT", { items: true, pay: { pixExpiresAt: null } });
+    await expect(updateOrder(S, card, { status: "CANCELED" })).rejects.toMatchObject({ code: "PAGAMENTO_EM_ABERTO" });
+    expect([await statusOf(pix), await statusOf(card)]).toEqual(["PENDING_PAYMENT", "PENDING_PAYMENT"]);
+    expect((await prisma.variant.findUniqueOrThrow({ where: { id: variant } })).stock).toBe(5);
+    const none = await mkOrder(S, cust, "PENDING_PAYMENT", { pay: { mpPaymentId: null, pixExpiresAt: null } }); // sem pagamento nenhum
+    expect((await updateOrder(S, none, { status: "CANCELED" })).status).toBe("CANCELED");
   });
   it("ja cancelado = 409 INVALID_TRANSITION", async () => {
     const id = await mkOrder(S, cust, "CANCELED");

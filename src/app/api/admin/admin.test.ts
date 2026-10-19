@@ -503,6 +503,7 @@ describe("/api/admin: configuracoes, credenciais, equipe e dominio", () => {
     expect(await (await send("settings", "PATCH", { originCep: "01310-100" })).json()).toEqual({ originCep: "01310100", pixDiscountPercent: 0 });
     expect(await res(send("settings", "PATCH", { originCep: "123" }))).toEqual([400, "CEP_INVALID"]);
     expect(await res(send("settings", "PATCH", { pixDiscountPercent: 101 }))).toEqual([400, "PIX_DISCOUNT_INVALID"]);
+    expect(await res(send("settings", "PATCH", { pixDiscountPercent: 51 }))).toEqual([400, "PIX_DISCOUNT_INVALID"]);
     expect((await send("settings", "PATCH", { pixDiscountPercent: "5" })).status).toBe(400);
     expect(await (await send("settings", "GET")).json()).toEqual({ originCep: "01310100", pixDiscountPercent: 0 });
     expect(await prisma.storeSetting.count({ where: { storeId: storeB } })).toBe(0);

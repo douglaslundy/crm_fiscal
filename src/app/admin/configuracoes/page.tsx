@@ -1,6 +1,6 @@
 import { MasterForm } from "@/components/master-form";
 import { cnameTarget, getDomain } from "@/domain/customDomain";
-import { CREDENTIAL_FIELDS, getCredentialStatus, getSettings, type CredentialField } from "@/domain/storeSettings";
+import { CREDENTIAL_FIELDS, MAX_PIX_DISCOUNT, getCredentialStatus, getSettings, type CredentialField } from "@/domain/storeSettings";
 import { listTeam } from "@/domain/team";
 import { adminPage } from "@/lib/admin-api";
 import { prisma } from "@/lib/db";
@@ -36,7 +36,7 @@ export default async function ConfiguracoesPage() {
         {!readOnly && (
           <MasterForm url="/api/admin/settings" method="PATCH" submit="Salvar" fields={[
             { name: "originCep", label: "CEP de origem", defaultValue: settings.originCep, required: true },
-            { name: "pixDiscountPercent", label: "Desconto no Pix (%)", type: "number", defaultValue: settings.pixDiscountPercent, required: true },
+            { name: "pixDiscountPercent", label: "Desconto no Pix (%)", type: "number", defaultValue: settings.pixDiscountPercent, required: true, max: MAX_PIX_DISCOUNT },
           ]} />
         )}
       </section>

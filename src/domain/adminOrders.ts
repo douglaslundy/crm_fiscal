@@ -7,10 +7,11 @@ export const ORDER_PAGE_SIZE = 20;
 const MAX_PAGE = 1000;
 const PAID_STATUSES: OrderStatus[] = ["PAID", "SHIPPED", "DELIVERED"];
 
-export type AdminOrderCode = "INVALID_TRANSITION" | "REEMBOLSO_MANUAL";
+export type AdminOrderCode = "INVALID_TRANSITION" | "REEMBOLSO_MANUAL" | "PAGAMENTO_EM_ABERTO";
 const MESSAGES: Record<AdminOrderCode, string> = {
   INVALID_TRANSITION: "Transição de status não permitida para este pedido.",
   REEMBOLSO_MANUAL: "Pedido já pago não pode ser cancelado aqui: faça o reembolso pelo painel do Mercado Pago.",
+  PAGAMENTO_EM_ABERTO: "Há um pagamento em andamento (Pix vigente ou cartão em análise). Aguarde o vencimento: o pedido é cancelado automaticamente se não for pago.",
 };
 export class AdminOrderError extends Error {
   name = "AdminOrderError";
@@ -37,6 +38,10 @@ export async function updateOrder(storeId: string, orderId: string, input: Order
 
   if (parsed.status === "CANCELED") {
     if (order.status !== "PENDING_PAYMENT") throw new AdminOrderError(order.status === "CANCELED" ? "INVALID_TRANSITION" : "REEMBOLSO_MANUAL");
+    // pagamento que ainda pode compensar (Pix vigente ou cartao pendente sem Pix): cancelar aqui geraria PAID_FOR_CANCELED.
+    // shortcut: checagem antes do cancelamento (nao atomica); um Pix criado no meio ainda cai no alerta existente.
+    const live = order.pixExpiresAt ? order.pixExpiresAt > new Date() : order.mpPaymentId !== null;
+    if (live) throw new AdminOrderError("PAGAMENTO_EM_ABERTO");
     if (!(await cancelOrder(storeId, orderId))) throw new AdminOrderError("INVALID_TRANSITION");
   } else {
     const where: Prisma.OrderWhereInput = parsed.status
