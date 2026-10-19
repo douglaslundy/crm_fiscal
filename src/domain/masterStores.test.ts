@@ -106,10 +106,23 @@ describe("suspend / reactivate / changePlan / update", () => {
     await suspendStore(a.id);
     await suspendStore(other.id);
     await reactivateStore(a.id);
-    expect(await store(a.id)).toMatchObject({ status: "ACTIVE", graceEndsAt: null });
+    expect(await store(a.id)).toMatchObject({ status: "ACTIVE", graceEndsAt: null, suspendedByMaster: false });
     expect((await sub(a.id))?.status).toBe("ACTIVE");
     expect((await store(other.id)).status).toBe("SUSPENDED"); // outra loja intacta
     expect((await sub(other.id))?.status).toBe("SUSPENDED");
+  });
+
+  it("suspensao do master e persistente: evento authorized do gateway nao reativa; reactivate do master libera", async () => {
+    const a = (await create({ startMode: "active" })).store;
+    await suspendStore(a.id);
+    expect((await store(a.id)).suspendedByMaster).toBe(true);
+    await applyBillingEvent(a.id, "authorized", new Date());
+    expect((await store(a.id)).status).toBe("SUSPENDED");
+    expect((await sub(a.id))?.status).toBe("SUSPENDED");
+    await reactivateStore(a.id);
+    await applyBillingEvent(a.id, "paused", new Date());
+    await applyBillingEvent(a.id, "authorized", new Date());
+    expect(await store(a.id)).toMatchObject({ status: "ACTIVE", suspendedByMaster: false });
   });
 
   it("changeStorePlan: troca so Store.planId; plano inativo ou inexistente rejeitado", async () => {

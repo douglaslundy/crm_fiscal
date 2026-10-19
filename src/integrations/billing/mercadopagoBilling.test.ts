@@ -65,6 +65,16 @@ describe("MercadoPagoBilling", () => {
     expect(sent().headers.Authorization).toBe("Bearer TOKEN-123");
   });
 
+  it("getAuthorizedPayment: GET /authorized_payments/{id}; status do pagamento approved/rejected, resto other", async () => {
+    const { gw, sent } = setup({ body: { id: 77, preapproval_id: "pre-1", status: "processed", payment: { id: 9, status: "approved" } } });
+    expect(await gw.getAuthorizedPayment("77")).toEqual({ preapprovalId: "pre-1", status: "approved" });
+    expect(sent()).toMatchObject({ url: `${API}/authorized_payments/77`, method: "GET" });
+    for (const [payment, status] of [[{ status: "rejected" }, "rejected"], [{ status: "in_process" }, "other"], [undefined, "other"]] as const) {
+      expect(await setup({ body: { preapproval_id: "pre-1", payment } }).gw.getAuthorizedPayment("77")).toEqual({ preapprovalId: "pre-1", status });
+    }
+    await expect(setup({ body: { payment: { status: "approved" } } }).gw.getAuthorizedPayment("77")).rejects.toBeInstanceOf(BillingError);
+  });
+
   it("getSubscription: status desconhecido vira pending (sem mudanca) e loga aviso sem segredo", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {

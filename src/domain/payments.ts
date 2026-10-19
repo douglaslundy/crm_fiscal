@@ -3,7 +3,7 @@ import type { OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dbForStore } from "@/lib/db-store";
 import { gatewayForStore } from "@/integrations/payments";
-import { isPixType, type PaymentGateway, type PaymentStatus } from "@/integrations/payments/types";
+import { isPixType, PaymentGatewayError, type PaymentGateway, type PaymentStatus } from "@/integrations/payments/types";
 import { pixPriceCents } from "./money";
 import { cancelOrder, OrderNotFoundError } from "./orders";
 import { getSettings } from "./storeSettings";
@@ -52,16 +52,19 @@ export async function applyPaymentUpdate(storeId: string, orderId: string, statu
 /**
  * Relê o pagamento no gateway DA LOJA (nunca confia no corpo do webhook) e aplica. externalReference = orderId e precisa
  * ser desta loja (senao "not_found", nada muda). approved com valor diferente do esperado -> alerta, nao vira PAID.
+ * Pix: esperado = valor gravado na criacao do QR (pixAmountCents); pedido antigo sem ele recalcula com o desconto atual.
  */
 export async function syncPayment(storeId: string, paymentId: string, gw: PaymentGateway): Promise<UpdateResult | "not_found"> {
   const p = await gw.getPayment(paymentId);
   const order = p.externalReference
-    ? await dbForStore(storeId).order.findFirst({ where: { id: p.externalReference }, select: { id: true, totalCents: true } })
+    ? await dbForStore(storeId).order.findFirst({ where: { id: p.externalReference }, select: { id: true, totalCents: true, pixAmountCents: true } })
     : null;
   if (!order) return "not_found";
   if (p.status === "approved") {
     const pix = isPixType(p.paymentTypeId);
-    const expectedCents = amountFor(pix ? "pix" : "card", order.totalCents, pix ? (await getSettings(storeId)).pixDiscountPercent : 0);
+    const expectedCents = pix && order.pixAmountCents !== null
+      ? order.pixAmountCents
+      : amountFor(pix ? "pix" : "card", order.totalCents, pix ? (await getSettings(storeId)).pixDiscountPercent : 0);
     if (p.amountCents !== expectedCents) {
       alert("PAYMENT_AMOUNT_MISMATCH", { storeId, orderId: order.id, paymentId: p.id, amountCents: p.amountCents, expectedCents });
       return "alert";
@@ -98,7 +101,7 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
   const db = dbForStore(storeId);
   const order = await db.order.findFirst({
     where: { id: orderId, customerId },
-    select: { id: true, status: true, totalCents: true, pixQrCode: true, pixExpiresAt: true },
+    select: { id: true, status: true, totalCents: true, pixQrCode: true, pixExpiresAt: true, pixAmountCents: true },
   });
   if (!order) throw new PayError("NOT_FOUND");
   if (order.status !== "PENDING_PAYMENT") throw new PayError("NOT_PENDING");
@@ -107,13 +110,14 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
   const pending = { id: orderId, status: "PENDING_PAYMENT" as const };
 
   if (input.method === "pix") {
-    const amountCents = amountFor("pix", order.totalCents, (await getSettings(storeId)).pixDiscountPercent);
     if (order.pixQrCode && order.pixExpiresAt) {
       if (order.pixExpiresAt <= now) throw new PayError("PIX_EXPIRED");
+      const amountCents = order.pixAmountCents ?? amountFor("pix", order.totalCents, (await getSettings(storeId)).pixDiscountPercent);
       return { status: order.status, pix: { qrCode: order.pixQrCode, qrCodeBase64: null, expiresAt: order.pixExpiresAt, amountCents } };
     }
+    const amountCents = amountFor("pix", order.totalCents, (await getSettings(storeId)).pixDiscountPercent);
     const r = await gw.payPix({ orderId, amountCents, payer }, `order:${orderId}:pix`);
-    const { count } = await db.order.updateMany({ where: pending, data: { mpPaymentId: r.id, pixQrCode: r.qrCode, pixExpiresAt: r.expiresAt } });
+    const { count } = await db.order.updateMany({ where: pending, data: { mpPaymentId: r.id, pixQrCode: r.qrCode, pixExpiresAt: r.expiresAt, pixAmountCents: amountCents } });
     if (count === 0) throw new PayError("NOT_PENDING");
     return { status: "PENDING_PAYMENT", pix: { qrCode: r.qrCode, qrCodeBase64: r.qrCodeBase64 || null, expiresAt: r.expiresAt, amountCents } };
   }
@@ -144,6 +148,7 @@ const UNPAID_TTL_MS = 60 * 60_000;
  * ainda pendente; cartao pendente feito depois de um Pix e cancelado no vencimento desse Pix). Antes, pedido com pagamento
  * e conferido no gateway: pago mas webhook perdido vira PAID, nao cancelado; gateway fora do ar ou alerta (valor divergente,
  * estorno) = pedido pulado, nunca cancelado as cegas. Ate 200 pedidos por loja por rodada; loja com erro nao para as outras.
+ * Pagamento inexistente no gateway (404) nunca concilia sozinho: um alerta PAYMENT_UNRECONCILABLE por rodada lista os pedidos.
  */
 export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: string) => Promise<PaymentGateway> } = {}) {
   const gatewayFor = deps.gatewayFor ?? ((id: string) => gatewayForStore(id));
@@ -153,6 +158,7 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
   };
   const stores = await prisma.store.findMany({ where: { orders: { some: due } }, select: { id: true } });
   const out = { canceled: 0, paid: 0, skipped: 0, failedStores: [] as string[] };
+  const missing: { storeId: string; orderId: string }[] = [];
   for (const { id: storeId } of stores) {
     try {
       const orders = await dbForStore(storeId).order.findMany({ where: due, select: { id: true, mpPaymentId: true }, orderBy: { createdAt: "asc" }, take: EXPIRE_BATCH });
@@ -165,6 +171,7 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
             r = await syncPayment(storeId, o.mpPaymentId, gw);
           } catch (e) {
             console.error(`[expire-orders] loja ${storeId} pedido ${o.id}: pagamento nao conferido`, e instanceof Error ? e.name : "");
+            if (e instanceof PaymentGatewayError && e.status === 404) missing.push({ storeId, orderId: o.id });
             out.skipped++;
             continue;
           }
@@ -179,5 +186,7 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
       out.failedStores.push(storeId);
     }
   }
+  // shortcut: repete a cada rodada enquanto o pedido existir (sem contador persistente de falhas); basta para log/alerta.
+  if (missing.length) alert("PAYMENT_UNRECONCILABLE", { orders: missing });
   return out;
 }

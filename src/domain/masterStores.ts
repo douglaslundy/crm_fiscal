@@ -23,14 +23,14 @@ async function locked<T>(storeId: string, fn: (tx: Prisma.TransactionClient) => 
 
 export const suspendStore = (storeId: string) =>
   locked(storeId, async (tx) => {
-    await tx.store.update({ where: { id: storeId }, data: { status: "SUSPENDED" } });
+    await tx.store.update({ where: { id: storeId }, data: { status: "SUSPENDED", suspendedByMaster: true } }); // evento do gateway nao reativa
     await tx.subscription.updateMany({ where: { storeId }, data: { status: "SUSPENDED" } });
   });
 
 /** Override manual/cortesia: forca ACTIVE e limpa a carencia. Uma preapproval real mantem o proprio estado no gateway e o proximo evento dele prevalece. */
 export const reactivateStore = (storeId: string) =>
   locked(storeId, async (tx) => {
-    await tx.store.update({ where: { id: storeId }, data: { status: "ACTIVE", graceEndsAt: null } });
+    await tx.store.update({ where: { id: storeId }, data: { status: "ACTIVE", graceEndsAt: null, suspendedByMaster: false } });
     await tx.subscription.updateMany({ where: { storeId }, data: { status: "ACTIVE" } });
   });
 

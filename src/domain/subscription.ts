@@ -6,11 +6,12 @@ import { StoreNotFoundError } from "./entitlements";
 export const GRACE_DAYS = 3;
 const DAY = 86400_000;
 
-export type LifecycleState = { store: StoreStatus; sub: SubStatus; graceEndsAt: Date | null };
+/** heldByMaster: loja suspensa pelo master (Store.suspendedByMaster); so o master reativa. */
+export type LifecycleState = { store: StoreStatus; sub: SubStatus; graceEndsAt: Date | null; heldByMaster?: boolean };
 
 /**
  * Maquina de estados da assinatura (pura). O status vem sempre do gateway (getSubscription), nunca do corpo do webhook.
- * - authorized: loja e assinatura ACTIVE, carencia limpa. Tambem reativa SUSPENDED.
+ * - authorized: loja e assinatura ACTIVE, carencia limpa. Tambem reativa SUSPENDED, exceto suspensao do master (nada muda).
  *   CANCELED so revive por uma NOVA assinatura autorizada: cancelada no Mercado Pago e terminal, e startCheckout
  *   troca Subscription.mpPreapprovalId, entao eventos da assinatura antiga nao acham mais a loja.
  * - pending: nada muda.
@@ -21,6 +22,7 @@ export type LifecycleState = { store: StoreStatus; sub: SubStatus; graceEndsAt: 
 export function transition(cur: LifecycleState, event: BillingStatus, now: Date): LifecycleState {
   switch (event) {
     case "authorized":
+      if (cur.heldByMaster) return cur;
       return { store: "ACTIVE", sub: "ACTIVE", graceEndsAt: null };
     case "pending":
       return cur;
@@ -48,9 +50,9 @@ export type ApplyOptions = {
 export async function applyBillingEvent(storeId: string, status: BillingStatus, now: Date, opts: ApplyOptions = {}): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await lockStores(tx, [storeId]);
-    const s = await tx.store.findUnique({ where: { id: storeId }, select: { status: true, graceEndsAt: true, subscription: { select: { status: true } } } });
+    const s = await tx.store.findUnique({ where: { id: storeId }, select: { status: true, graceEndsAt: true, suspendedByMaster: true, subscription: { select: { status: true } } } });
     if (!s) throw new StoreNotFoundError(`Loja ${storeId} nao encontrada`);
-    const cur: LifecycleState = { store: s.status, sub: s.subscription?.status ?? "TRIALING", graceEndsAt: s.graceEndsAt };
+    const cur: LifecycleState = { store: s.status, sub: s.subscription?.status ?? "TRIALING", graceEndsAt: s.graceEndsAt, heldByMaster: s.suspendedByMaster };
     const next = transition(cur, status, now);
     await opts._testAfterRead?.();
     const period = opts.periodEnd === undefined ? {} : { currentPeriodEnd: opts.periodEnd };

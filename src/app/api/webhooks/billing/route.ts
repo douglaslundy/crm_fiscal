@@ -17,12 +17,24 @@ export async function POST(req: Request) {
   const type = url.searchParams.get("type") ?? body?.type;
   const gw = getBilling();
   if (!dataId || !gw.verifyWebhook(req.headers, dataId)) return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 });
-  // shortcut: so subscription_preapproval; subscription_authorized_payment exigiria GET /authorized_payments/{id}.
-  if (type !== "subscription_preapproval") return ok();
+  let preapprovalId = dataId;
+  let rejected = false;
+  if (type === "subscription_authorized_payment") {
+    // cobranca mensal: aprovada -> reaplica o estado da assinatura (ACTIVE + proximo periodo); recusada -> paused (PAST_DUE).
+    // shortcut: recusa antiga chegando depois de uma aprovacao rebaixa ate o proximo evento; checar data do pagamento se incomodar.
+    const p = await gw.getAuthorizedPayment(dataId);
+    if (p.status === "other") return ok();
+    preapprovalId = p.preapprovalId;
+    rejected = p.status === "rejected";
+  } else if (type !== "subscription_preapproval") return ok();
 
-  const sub = await prisma.subscription.findUnique({ where: { mpPreapprovalId: dataId }, select: { storeId: true } });
+  const sub = await prisma.subscription.findUnique({ where: { mpPreapprovalId: preapprovalId }, select: { storeId: true } });
   if (!sub) return ok();
-  const remote = await gw.getSubscription(dataId);
+  if (rejected) {
+    await applyBillingEvent(sub.storeId, "paused", new Date());
+    return ok();
+  }
+  const remote = await gw.getSubscription(preapprovalId);
   await applyBillingEvent(sub.storeId, remote.status, new Date(), { periodEnd: remote.nextPaymentAt });
   return ok();
 }

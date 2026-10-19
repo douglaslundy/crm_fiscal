@@ -61,27 +61,29 @@ model Plan {
 }
 
 model Store {
-  id           String         @id @default(cuid())
-  slug         String         @unique
-  name         String
-  status       StoreStatus    @default(TRIAL)
-  planId       String
-  plan         Plan           @relation(fields: [planId], references: [id], onDelete: Restrict)
-  trialEndsAt  DateTime?
-  graceEndsAt  DateTime?
-  createdAt    DateTime       @default(now())
-  members      StoreMember[]
-  domains      StoreDomain[]
-  subscription Subscription?
-  customers    Customer[]
-  addresses    Address[]
-  categories   Category[]
-  products     Product[]
-  images       ProductImage[]
-  variants     Variant[]
-  orders       Order[]
-  orderItems   OrderItem[]
-  settings     StoreSetting[]
+  id                String         @id @default(cuid())
+  slug              String         @unique
+  name              String
+  status            StoreStatus    @default(TRIAL)
+  planId            String
+  plan              Plan           @relation(fields: [planId], references: [id], onDelete: Restrict)
+  trialEndsAt       DateTime?
+  graceEndsAt       DateTime?
+  /// Suspensa pelo master: evento de cobranca nao reativa; so o master libera.
+  suspendedByMaster Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  members           StoreMember[]
+  domains           StoreDomain[]
+  subscription      Subscription?
+  customers         Customer[]
+  addresses         Address[]
+  categories        Category[]
+  products          Product[]
+  images            ProductImage[]
+  variants          Variant[]
+  orders            Order[]
+  orderItems        OrderItem[]
+  settings          StoreSetting[]
 }
 
 model StoreMember {
@@ -242,6 +244,8 @@ model Order {
   mpPaymentId     String?     @unique
   pixQrCode       String?
   pixExpiresAt    DateTime?
+  /// Valor cobrado no Pix quando o QR foi criado (o desconto da loja pode mudar depois).
+  pixAmountCents  Int?
   idempotencyKey  String?
   createdAt       DateTime    @default(now())
   store           Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)

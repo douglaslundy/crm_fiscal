@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { BillingError, type BillingGateway, type BillingStatus } from "./types";
+import { BillingError, type AuthorizedPayment, type BillingGateway, type BillingStatus } from "./types";
 
 const API = "https://api.mercadopago.com";
 const STATUSES: readonly string[] = ["authorized", "pending", "paused", "cancelled"] satisfies BillingStatus[];
@@ -78,6 +78,14 @@ export class MercadoPagoBilling implements BillingGateway {
     }
     const next = typeof r.next_payment_date === "string" ? new Date(r.next_payment_date) : null;
     return { status, nextPaymentAt: next && !isNaN(next.getTime()) ? next : null };
+  }
+
+  /** Cobranca mensal (GET /authorized_payments/{id}): o que vale e o status do pagamento dentro dela. */
+  async getAuthorizedPayment(id: string): Promise<AuthorizedPayment> {
+    const r = await this.call("GET", `/authorized_payments/${encodeURIComponent(id)}`);
+    if (typeof r.preapproval_id !== "string") throw new BillingError("Resposta do Mercado Pago sem preapproval_id");
+    const p = (r.payment ?? {}) as { status?: unknown };
+    return { preapprovalId: r.preapproval_id, status: p.status === "approved" || p.status === "rejected" ? p.status : "other" };
   }
 
   /** x-signature "ts=..,v1=.." = HMAC-SHA256 hex de `id:{dataId};request-id:{x-request-id};ts:{ts};` (igual ao SDK oficial). */

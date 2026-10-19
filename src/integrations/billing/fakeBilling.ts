@@ -1,10 +1,11 @@
-import { BillingError, type BillingGateway, type BillingStatus } from "./types";
+import { BillingError, type AuthorizedPayment, type BillingGateway, type BillingStatus } from "./types";
 
 type FakeSub = { storeId: string; planId: string; payerEmail: string; status: BillingStatus; nextPaymentAt: Date | null };
 
 /** Gateway em memoria para desenvolvimento e testes (sem credenciais do Mercado Pago). */
 export class FakeBilling implements BillingGateway {
   readonly subs = new Map<string, FakeSub>();
+  readonly payments = new Map<string, AuthorizedPayment>();
   private n = 0;
 
   /** Assinatura aceita por verifyWebhook: so serve para testes/dev, nunca em producao (ver getBilling). */
@@ -29,6 +30,12 @@ export class FakeBilling implements BillingGateway {
   async getSubscription(externalId: string) {
     const { status, nextPaymentAt } = this.get(externalId);
     return { status, nextPaymentAt };
+  }
+
+  async getAuthorizedPayment(id: string) {
+    const p = this.payments.get(id);
+    if (!p) throw new BillingError(`Cobranca ${id} inexistente`);
+    return p;
   }
 
   verifyWebhook(headers: Headers, dataId: string) {

@@ -213,6 +213,19 @@ describe("applyPaymentUpdate / syncPayment", () => {
     expect(await order(o.id)).toMatchObject({ status: "PAID", mpPaymentId: `pix-${tag}` });
   });
 
+  it("Pix: valor cobrado fica gravado no pedido; desconto alterado no meio do Pix ainda concilia pelo valor gravado", async () => {
+    await updateSettings(S, { pixDiscountPercent: 5 });
+    const o = await mkOrder(S, cust, { totalCents: 10001 });
+    await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "pix" }, fake);
+    const db = await order(o.id);
+    expect(db.pixAmountCents).toBe(9500);
+    await updateSettings(S, { pixDiscountPercent: 10 }); // lojista muda o desconto com o QR ainda vigente
+    const again = await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "pix" }, fake);
+    expect(again.pix!.amountCents).toBe(9500); // QR reaproveitado mostra o valor dele, nao o recalculado
+    fake.put({ ...fake.payments.get(db.mpPaymentId!)!, status: "approved" });
+    expect(await syncPayment(S, db.mpPaymentId!, fake)).toBe("paid");
+  });
+
   it("externalReference de pedido de outra loja -> not_found, nada muda", async () => {
     const T = await mkStore("t");
     const ot = await mkOrder(T, await mkCustomer(T, "t"));
@@ -282,6 +295,19 @@ describe("expireOrders", () => {
     expect(await stock(plain.variantId)).toBe(10);
     expect((await order(down.id)).status).toBe("PENDING_PAYMENT");
     expect(r.skipped).toBeGreaterThanOrEqual(2);
+  });
+
+  it("pagamento inexistente no gateway (404) -> pula e emite um alerta PAYMENT_UNRECONCILABLE com os pedidos", async () => {
+    const a = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `sumiu-a-${tag}` });
+    const b = await mkOrder(S, cust, { pixExpiresAt: ago(1), mpPaymentId: `sumiu-b-${tag}` });
+    const spy = alerts();
+    const r = await expireOrders(now);
+    expect((await order(a.id)).status).toBe("PENDING_PAYMENT");
+    expect(r.skipped).toBeGreaterThanOrEqual(2);
+    const found = spy.mock.calls.map((c) => { try { return JSON.parse(c[0] as string); } catch { return null; } })
+      .filter((x) => x?.alert === "PAYMENT_UNRECONCILABLE");
+    expect(found).toHaveLength(1);
+    expect(found[0].orders).toEqual(expect.arrayContaining([{ storeId: S, orderId: a.id }, { storeId: S, orderId: b.id }]));
   });
 
   it("erro no nivel da loja nao para as outras lojas", async () => {

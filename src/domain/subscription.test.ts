@@ -71,6 +71,7 @@ describe("transition (pura)", () => {
     const cur = { store, sub, graceEndsAt };
     it(`${store}/${sub}/${graceEndsAt ? "com" : "sem"} carencia`, () => {
       expect(transition(cur, "authorized", NOW)).toEqual({ store: "ACTIVE", sub: "ACTIVE", graceEndsAt: null });
+      expect(transition({ ...cur, heldByMaster: true }, "authorized", NOW)).toEqual({ ...cur, heldByMaster: true }); // suspensao do master vale
       expect(transition(cur, "pending", NOW)).toEqual(cur);
       expect(transition(cur, "cancelled", NOW)).toEqual({ store: "CANCELED", sub: "CANCELED", graceEndsAt: null });
       const paused = transition(cur, "paused", NOW);
@@ -323,6 +324,22 @@ describe("webhook /api/webhooks/billing", () => {
     expect(res.status).toBe(200);
     await call(mp);
     expect(await state(id)).toMatchObject({ store: "ACTIVE", sub: "ACTIVE", graceEndsAt: null });
+  });
+
+  it("subscription_authorized_payment: aprovado -> estado e periodo da assinatura; recusado -> PAST_DUE com carencia", async () => {
+    const { id, mp } = await subscribed();
+    const pay = (pid: string) => call(pid, FakeBilling.sign(pid), "subscription_authorized_payment");
+    fake.set(mp, "authorized", at(30));
+    fake.payments.set(`ok-${tag}`, { preapprovalId: mp, status: "approved" });
+    expect((await pay(`ok-${tag}`)).status).toBe(200);
+    expect(await state(id)).toMatchObject({ store: "ACTIVE", sub: "ACTIVE", periodEnd: at(30) });
+    fake.payments.set(`no-${tag}`, { preapprovalId: mp, status: "rejected" });
+    await pay(`no-${tag}`);
+    expect(await state(id)).toMatchObject({ store: "ACTIVE", sub: "PAST_DUE" });
+    expect((await state(id)).graceEndsAt).not.toBeNull();
+    fake.payments.set(`x-${tag}`, { preapprovalId: "outra", status: "approved" }); // assinatura que nao e de nenhuma loja
+    expect((await pay(`x-${tag}`)).status).toBe(200);
+    expect((await call(`ok-${tag}`, "fake:errada", "subscription_authorized_payment")).status).toBe(401);
   });
 
   it("id externo desconhecido -> 200 sem efeito; outros tipos ignorados", async () => {
