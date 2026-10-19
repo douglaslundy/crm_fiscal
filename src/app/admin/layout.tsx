@@ -16,6 +16,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <Link href="/admin/pedidos">Pedidos</Link>
         <Link href="/admin/cupons">Cupons</Link>
         <Link href="/admin/clientes">Clientes</Link>
+        <Link href="/admin/avaliacoes">Avaliações</Link>
         <Link href="/admin/inscritos">Inscritos</Link>
         <Link href="/admin/assinatura">Assinatura</Link>
         <Link href="/admin/configuracoes">Configurações</Link>

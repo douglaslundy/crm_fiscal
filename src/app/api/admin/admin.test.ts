@@ -33,6 +33,7 @@ const credentials = await import("./credentials/route");
 const team = await import("./team/route");
 const teamId = await import("./team/[id]/route");
 const coupons = await import("./coupons/route");
+const reviewId = await import("./reviews/[id]/route");
 const theme = await import("./theme/route");
 const subscribers = await import("./subscribers/route");
 const subscriberId = await import("./subscribers/[id]/route");
@@ -69,6 +70,7 @@ let inviteIdA: string;
 let couponIdA: string;
 let collectionIdA: string;
 let subscriberIdA: string;
+let reviewIdA: string;
 let ownerB: Session;
 let master: Session;
 let customer: Session;
@@ -119,6 +121,8 @@ beforeEach(async () => {
     return (await prisma.order.create({ data: { storeId, customerId: c.id, status: "PAID", subtotalCents: 100, shippingCents: 0, totalCents: 100, shippingService: "PAC", addressSnapshot: {} } })).id;
   };
   [ordA, ordB] = [await mkOrder(storeA), await mkOrder(storeB)];
+  const revCustomer = await prisma.customer.create({ data: { storeId: storeA, name: "Rev", email: `rev-${tag}@t.local`, cpf: "52998224725", phone: "11999999999", passwordHash: "x" } });
+  reviewIdA = (await prisma.review.create({ data: { storeId: storeA, productId: prodA, customerId: revCustomer.id, rating: 4, comment: "ok" } })).id;
   ownerA = session(oa, "account");
   staffA = session(sa, "account");
   ownerB = session(ob, "account");
@@ -180,6 +184,8 @@ const cases: Case[] = [
   { route: "subscribers/[id]", method: "DELETE", handler: subscriberId.DELETE as Handler, id: () => subscriberIdA, ok: 200 },
   { route: "theme", method: "GET", handler: theme.GET as Handler, ok: 200 },
   { route: "theme", method: "PATCH", handler: theme.PATCH as Handler, ok: 200, body: () => ({ primaryColor: "#336699" }) },
+  { route: "reviews/[id]", method: "PATCH", handler: reviewId.PATCH as Handler, id: () => reviewIdA, ok: 200, body: () => ({ hidden: true }) },
+  { route: "reviews/[id]", method: "DELETE", handler: reviewId.DELETE as Handler, id: () => reviewIdA, ok: 200 },
   { route: "coupons", method: "GET", handler: coupons.GET as Handler, ok: 200 },
   { route: "coupons", method: "POST", handler: coupons.POST as Handler, ok: 201, body: () => ({ code: "NOVO10", kind: "PERCENT", value: 10 }) },
   { route: "coupons/[id]", method: "PATCH", handler: couponId.PATCH as Handler, id: () => couponIdA, ok: 200, body: () => ({ active: false }) },

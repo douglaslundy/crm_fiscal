@@ -131,7 +131,10 @@ const UNSAFE = new RegExp(`[<>&${String.fromCharCode(0x2028, 0x2029)}]`, "g");
 export const jsonLdScript = (data: unknown): string =>
   JSON.stringify(data).replace(UNSAFE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
-export function productJsonLd(p: { name: string; description: string; images: { url: string }[]; variants: { priceCents: number; stock: number }[] }) {
+export function productJsonLd(
+  p: { name: string; description: string; images: { url: string }[]; variants: { priceCents: number; stock: number }[] },
+  rating?: { average: number | null; count: number },
+) {
   const price = Math.min(...p.variants.map((v) => v.priceCents));
   return {
     "@context": "https://schema.org",
@@ -139,6 +142,7 @@ export function productJsonLd(p: { name: string; description: string; images: { 
     name: p.name,
     image: p.images.map((i) => i.url),
     description: p.description,
+    ...(rating && rating.count > 0 && rating.average !== null ? { aggregateRating: { "@type": "AggregateRating", ratingValue: rating.average, reviewCount: rating.count } } : {}),
     offers: {
       "@type": "Offer",
       priceCurrency: "BRL",

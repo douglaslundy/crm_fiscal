@@ -83,6 +83,7 @@ model Store {
   coupons           Coupon[]
   collections       Collection[]
   subscribers       Subscriber[]
+  reviews           Review[]
   subscription      Subscription?
   customers         Customer[]
   addresses         Address[]
@@ -153,6 +154,8 @@ model Customer {
   store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
   addresses    Address[]
   orders       Order[]
+  reviews      Review[]
+  wishlist     WishlistItem[]
 
   @@unique([storeId, email])
   @@unique([storeId, id])
@@ -235,6 +238,38 @@ model Subscriber {
   @@unique([storeId, id])
 }
 
+/// Avaliacao de produto por quem comprou (pedido pago). Uma por cliente e produto; o lojista pode ocultar.
+model Review {
+  id         String   @id @default(cuid())
+  storeId    String
+  productId  String
+  customerId String
+  rating     Int
+  comment    String
+  hidden     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [storeId, productId], references: [storeId, id], onDelete: Cascade)
+  customer   Customer @relation(fields: [storeId, customerId], references: [storeId, id], onDelete: Cascade)
+
+  @@unique([productId, customerId])
+  @@unique([storeId, id])
+  @@index([productId, hidden, createdAt])
+}
+
+/// Produto favoritado pelo cliente (lista de desejos).
+model WishlistItem {
+  storeId    String
+  customerId String
+  productId  String
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [storeId, customerId], references: [storeId, id], onDelete: Cascade)
+  product    Product  @relation(fields: [storeId, productId], references: [storeId, id], onDelete: Cascade)
+
+  @@id([customerId, productId])
+  @@index([productId])
+}
+
 model Category {
   id       String     @id @default(cuid())
   storeId  String
@@ -268,6 +303,8 @@ model Product {
   category    Category?      @relation(fields: [storeId, categoryId], references: [storeId, id], onDelete: NoAction)
   images      ProductImage[]
   collections ProductCollection[]
+  reviews     Review[]
+  wishlisted  WishlistItem[]
   variants    Variant[]
 
   @@unique([storeId, slug])

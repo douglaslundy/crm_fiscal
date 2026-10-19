@@ -34,6 +34,7 @@ const MESSAGES: Record<string, string> = {
   CEP_INVALID: "CEP inválido. Use 8 dígitos, ex.: 37175-000.",
   PIX_DISCOUNT_INVALID: "O desconto no Pix deve ser um número inteiro de 0 a 50.",
   INVITE_NOT_FOUND: "Convite não encontrado.",
+  REVIEW_NOT_FOUND: "Avaliação não encontrada.",
   COLLECTION_SLUG_TAKEN: "Já existe uma coleção com este endereço.",
   COLLECTION_INVALID: "Nome ou endereço da coleção inválido.",
   COLLECTION_NOT_FOUND: "Coleção não encontrada.",
