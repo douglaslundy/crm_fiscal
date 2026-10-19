@@ -248,6 +248,22 @@ describe("/api/admin: todas as rotas exigem membro da loja", () => {
     expect(storage.files.size).toBe(0);
   });
 
+  const exportCase = (): Case => cases.find((c) => c.route === "export")!;
+  it("GET export: 200 com cache-control no-store e text/csv", async () => {
+    getSession.mockResolvedValue(ownerA);
+    const res = await call(exportCase());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("content-type")).toContain("text/csv");
+  });
+  it("GET export: plano sem csvExport 403 PLANO_NAO_PERMITE", async () => {
+    await prisma.plan.update({ where: { id: planId }, data: { csvExport: false } });
+    getSession.mockResolvedValue(ownerA);
+    const res = await call(exportCase());
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "PLANO_NAO_PERMITE" });
+  });
+
   const mutating = cases.filter((c) => c.method !== "GET");
   it.each(mutating)("$method $route: CSRF, Origin estrangeiro 403", async (c) => {
     getSession.mockResolvedValue(ownerA);

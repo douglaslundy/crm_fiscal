@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   const days = parseDays(new URL(req.url).searchParams.get("days"));
   try {
     const csv = await exportOrdersCsv(ctx.store.id, days);
-    return new NextResponse(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="pedidos-${days}d.csv"` } });
+    return new NextResponse(csv, { headers: { "cache-control": "no-store", "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="pedidos-${days}d.csv"` } });
   } catch (e) {
     if (e instanceof CsvNotAllowedError) return err(403, "PLANO_NAO_PERMITE", { code: "PLANO_NAO_PERMITE" });
     throw e;

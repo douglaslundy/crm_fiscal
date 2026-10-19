@@ -38,6 +38,13 @@ describe("computeMetrics", () => {
   });
 });
 
+describe("computeMetrics sem advanced", () => {
+  it("mantem os 3 totais e nao calcula byDay/topProducts", () => {
+    const m = computeMetrics([row("PAID", 1000, "2026-03-01T12:00:00Z", [{ name: "A", quantity: 1 }])], range, false);
+    expect(m).toMatchObject({ revenueCents: 1000, orderCount: 1, avgTicketCents: 1000, byDay: [], topProducts: [] });
+  });
+});
+
 describe("parseDays", () => {
   it("aceita 7/30/90; resto vira 30", () => {
     expect([parseDays("7"), parseDays("90"), parseDays("30")]).toEqual([7, 90, 30]);
@@ -106,6 +113,14 @@ describe("loadStoreMetrics / exportOrdersCsv (banco)", () => {
     await order(a, "PAID", 1000, new Date("2026-05-01T12:00:00Z"));
     expect((await loadStoreMetrics(a.id, 30, now)).orderCount).toBe(0);
     expect((await loadStoreMetrics(a.id, 90, now)).orderCount).toBe(1);
+  });
+  it("CSV: com teto estourado perde os mais antigos, nunca os recentes; saida cronologica", async () => {
+    const a = await mk("cap", true, true);
+    await order(a, "PAID", 100, new Date("2026-06-10T12:00:00Z"));
+    await order(a, "PAID", 200, new Date("2026-06-12T12:00:00Z"));
+    await order(a, "PAID", 300, new Date("2026-06-14T12:00:00Z"));
+    const csv = await exportOrdersCsv(a.id, 30, now, 2);
+    expect(csv.trim().split(String.fromCharCode(13, 10)).slice(1).map((l) => l.split(",")[5])).toEqual(["2.00", "3.00"]);
   });
   it("CSV: plano sem csvExport lanca CsvNotAllowedError", async () => {
     const a = await mk("nocsv", true, false);

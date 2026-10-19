@@ -16,7 +16,7 @@ const DAY = 86400_000;
 // shortcut: Sao Paulo fixo em UTC-3 (sem horario de verao desde 2019), reavaliar se o Brasil voltar ao DST.
 const spDay = (d: Date) => new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 10);
 export const DAYS_OPTIONS = [7, 30, 90] as const;
-export const MAX_ROWS = 20000; // shortcut: teto de pedidos lidos por consulta (receita subestimada acima disso), mover para groupBy no banco.
+export const MAX_ROWS = 20000; // shortcut: teto de pedidos lidos por consulta, mais recentes primeiro (acima disso a metrica perde os mais antigos e o CSV omite os mais antigos); mover metricas para groupBy no banco e CSV para streaming.
 
 /** Qualquer valor fora de 7/30/90 vira 30. */
 export const parseDays = (v: unknown): number => {
@@ -27,9 +27,9 @@ export const parseDays = (v: unknown): number => {
 export const rangeForDays = (days: number, now = new Date()) => ({ from: new Date(now.getTime() - (days - 1) * DAY - ((now.getTime() - 3 * 3600_000) % DAY)), to: now });
 
 /** Puro. So PAID|SHIPPED|DELIVERED dentro de [from, to]; byDay traz todos os dias (fuso de Sao Paulo), zerados quando sem venda. */
-export function computeMetrics(orders: OrderRow[], range: { from: Date; to: Date }): Metrics {
+export function computeMetrics(orders: OrderRow[], range: { from: Date; to: Date }, advanced = true): Metrics {
   const byDay = new Map<string, number>();
-  for (let t = range.from.getTime(); spDay(new Date(t)) <= spDay(range.to); t += DAY) byDay.set(spDay(new Date(t)), 0);
+  for (let t = range.from.getTime(); advanced && spDay(new Date(t)) <= spDay(range.to); t += DAY) byDay.set(spDay(new Date(t)), 0);
   const qty = new Map<string, number>();
   let revenueCents = 0;
   let orderCount = 0;
@@ -37,6 +37,7 @@ export function computeMetrics(orders: OrderRow[], range: { from: Date; to: Date
     if (!COUNTED.includes(o.status) || o.createdAt < range.from || o.createdAt > range.to) continue;
     revenueCents += o.totalCents;
     orderCount++;
+    if (!advanced) continue;
     byDay.set(spDay(o.createdAt), (byDay.get(spDay(o.createdAt)) ?? 0) + o.totalCents);
     for (const i of o.items) qty.set(i.name, (qty.get(i.name) ?? 0) + i.quantity);
   }
@@ -53,15 +54,18 @@ export type StoreMetrics = Pick<Metrics, "revenueCents" | "orderCount" | "avgTic
 
 /** Dados da pagina: byDay/topProducts so existem no resultado se o plano tem advancedMetrics (nem sao enviados ao Start). */
 export async function loadStoreMetrics(storeId: string, days: number, now = new Date()): Promise<StoreMetrics> {
+  const advanced = (await getFeatures(storeId)).advancedMetrics;
   const range = rangeForDays(days, now);
   const rows = await dbForStore(storeId).order.findMany({
     where: { status: { in: COUNTED }, createdAt: { gte: range.from, lte: range.to } },
-    select: { status: true, totalCents: true, createdAt: true, items: { select: { productName: true, quantity: true } } },
+    // Start nao le os itens: byDay/topProducts nem sao calculados.
+    select: { status: true, totalCents: true, createdAt: true, ...(advanced ? { items: { select: { productName: true, quantity: true } } } : {}) },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: MAX_ROWS,
   });
-  const m = computeMetrics(rows.map((r) => ({ ...r, items: r.items.map((i) => ({ name: i.productName, quantity: i.quantity })) })), range);
+  const m = computeMetrics(rows.map((r) => ({ ...r, items: "items" in r ? r.items.map((i) => ({ name: i.productName, quantity: i.quantity })) : [] })), range, advanced);
   const { revenueCents, orderCount, avgTicketCents } = m;
-  return (await getFeatures(storeId)).advancedMetrics ? m : { revenueCents, orderCount, avgTicketCents };
+  return advanced ? m : { revenueCents, orderCount, avgTicketCents };
 }
 
 /** Neutraliza formula (=,+,-,@,tab,CR) e cita campos com virgula, aspas ou quebra de linha. */
@@ -74,15 +78,16 @@ export class CsvNotAllowedError extends Error {
   name = "CsvNotAllowedError";
 }
 
-export async function exportOrdersCsv(storeId: string, days: number, now = new Date()): Promise<string> {
+export async function exportOrdersCsv(storeId: string, days: number, now = new Date(), cap = MAX_ROWS): Promise<string> {
   if (!(await getFeatures(storeId)).csvExport) throw new CsvNotAllowedError();
   const range = rangeForDays(days, now);
   const rows = await dbForStore(storeId).order.findMany({
     where: { createdAt: { gte: range.from, lte: range.to } },
     select: { id: true, createdAt: true, status: true, totalCents: true, trackingCode: true, customer: { select: { name: true, email: true } } },
-    orderBy: { createdAt: "asc" },
-    take: MAX_ROWS,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: cap,
   });
+  rows.reverse(); // cronologico na saida; o corte do teto descarta os mais antigos, nunca os recentes
   const lines = rows.map((o) =>
     [o.id, o.createdAt.toISOString(), o.status, o.customer.name, o.customer.email, `${Math.floor(o.totalCents / 100)}.${String(o.totalCents % 100).padStart(2, "0")}`, o.trackingCode ?? ""].map(csvCell).join(","),
   );
