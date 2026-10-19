@@ -86,7 +86,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
       if (r.status === 201) {
         setDone(true);
         clear();
-        router.replace(`/checkout?pedido=${encodeURIComponent(data.orderId)}`);
+        router.replace(`/pedido/${encodeURIComponent(data.orderId)}`); // pagamento (cartao ou Pix) na pagina do pedido
         return;
       }
       if (data?.error === "TOTAL_ALTERADO") {
@@ -105,7 +105,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
     setBusy(false);
   }
 
-  if (done) return <p role="status">Pedido criado. Abrindo a confirmação…</p>;
+  if (done) return <p role="status">Pedido criado. Abrindo o pagamento…</p>;
   if (stored.length === 0) return <p>Seu carrinho está vazio. <Link href="/">Continuar comprando</Link></p>;
   if (!priced) return error ? <p role="alert">{error}</p> : <p>Carregando…</p>;
   const names = new Map(priced.lines.map((l) => [l.variantId, l.productName]));

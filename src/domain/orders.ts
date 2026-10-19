@@ -118,15 +118,21 @@ export async function createOrder(
   });
 }
 
-/** Cancela pedido aguardando pagamento e devolve o estoque uma unica vez (idempotente). Outros status: nada muda. */
-export async function cancelOrder(storeId: string, orderId: string): Promise<void> {
-  await dbForStore(storeId).$transaction(async (tx) => {
-    const { count } = await tx.order.updateMany({ where: { id: orderId, status: "PENDING_PAYMENT" }, data: { status: "CANCELED" } });
+/**
+ * Cancela pedido aguardando pagamento e devolve o estoque uma unica vez (idempotente). Outros status: nada muda.
+ * `onlyIfPaymentId`: so cancela se esse ainda for o pagamento atual do pedido (mesmo UPDATE condicional, sem corrida).
+ * Retorna true so para quem de fato cancelou.
+ */
+export async function cancelOrder(storeId: string, orderId: string, opts: { onlyIfPaymentId?: string } = {}): Promise<boolean> {
+  return dbForStore(storeId).$transaction(async (tx) => {
+    const where = { id: orderId, status: "PENDING_PAYMENT" as const, ...(opts.onlyIfPaymentId ? { mpPaymentId: opts.onlyIfPaymentId } : {}) };
+    const { count } = await tx.order.updateMany({ where, data: { status: "CANCELED" } });
     if (count === 0) {
       if (!(await tx.order.findFirst({ where: { id: orderId }, select: { id: true } }))) throw new OrderNotFoundError("Pedido não encontrado");
-      return;
+      return false;
     }
     const items = await tx.orderItem.findMany({ where: { orderId, variantId: { not: null } }, orderBy: { variantId: "asc" } });
     for (const it of items) await tx.variant.updateMany({ where: { id: it.variantId! }, data: { stock: { increment: it.quantity } } });
+    return true;
   });
 }
