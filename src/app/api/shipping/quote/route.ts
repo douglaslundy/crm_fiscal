@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { priceStoreCart } from "@/domain/cartServer";
 import { normalizeCep } from "@/domain/cep";
+import { MAX_CENTS } from "@/domain/money";
 import { buildPackages, hasOversizeItem, quoteCache, quotePackages } from "@/domain/shipping";
 import { getSettings, getStoreCredentials } from "@/domain/storeSettings";
 import { isStoreBlocked } from "@/domain/subscription";
@@ -35,6 +36,8 @@ export async function POST(req: Request) {
 
   const priced = await priceStoreCart(store.id, parsed.data.lines);
   if (priced.lines.length === 0) return NextResponse.json({ error: "CARRINHO_VAZIO", issues: priced.issues }, { status: 400 });
+  // seguro dos pacotes <= subtotal: barrar aqui mantem todo valor em centavos dentro do int4 do banco
+  if (priced.subtotalCents > MAX_CENTS) return NextResponse.json({ error: "TOTAL_MUITO_ALTO" }, { status: 422 });
 
   const provider = getShippingProvider((await getStoreCredentials(store.id)).melhorEnvioToken);
   if (!provider) return NextResponse.json({ error: "FRETE_NAO_CONFIGURADO" }, { status: 422 });

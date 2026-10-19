@@ -39,6 +39,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [done, setDone] = useState(false);
+  const [serverTotal, setServerTotal] = useState<number | null>(null); // total do servidor que o cliente ainda precisa confirmar
 
   // Reprecifica o carrinho; a correcao do servidor regrava o carrinho guardado.
   useEffect(() => {
@@ -79,7 +80,8 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
   async function placeOrder() {
     setBusy(true); setError(null);
     try {
-      const r = await post("/api/checkout/order", { lines: stored, addressId, shippingService: shipping?.service });
+      const expectedTotalCents = serverTotal ?? (priced && shipping ? priced.subtotalCents + shipping.priceCents : undefined);
+      const r = await post("/api/checkout/order", { lines: stored, addressId, shippingService: shipping?.service, expectedTotalCents });
       const data = await r.json().catch(() => null);
       if (r.status === 201) {
         setDone(true);
@@ -87,6 +89,13 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
         router.replace(`/checkout?pedido=${encodeURIComponent(data.orderId)}`);
         return;
       }
+      if (data?.error === "TOTAL_ALTERADO") {
+        // o servidor sempre vale: mostra o total novo e o proximo clique confirma exatamente esse valor
+        setServerTotal(data.totalCents);
+        setError(`O total do pedido mudou para ${formatBRL(data.totalCents)}. Clique em "Fazer pedido" para confirmar.`);
+        return setBusy(false);
+      }
+      setServerTotal(null);
       if (data?.issues) setIssues(data.issues);
       setError(ORDER_ERRORS[data?.error] ?? "Não foi possível criar o pedido. Tente novamente.");
       if (r.status === 409) setRefresh((n) => n + 1); // recarrega carrinho e frete
@@ -96,7 +105,6 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
     setBusy(false);
   }
 
-  if (done) return <p role="status">Pedido criado. Abrindo a confirmação…</p>;
   if (done) return <p role="status">Pedido criado. Abrindo a confirmação…</p>;
   if (stored.length === 0) return <p>Seu carrinho está vazio. <Link href="/">Continuar comprando</Link></p>;
   if (!priced) return error ? <p role="alert">{error}</p> : <p>Carregando…</p>;
@@ -126,7 +134,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
             <legend>Escolha o endereço:</legend>
             {addresses.map((a) => (
               <label key={a.id} style={{ display: "block", margin: "4px 0" }}>
-                <input type="radio" name="address" checked={a.id === addressId} onChange={() => setAddressId(a.id)} /> {addressLabel(a)}
+                <input type="radio" name="address" checked={a.id === addressId} onChange={() => { setServerTotal(null); setAddressId(a.id); }} /> {addressLabel(a)}
               </label>
             ))}
           </fieldset>
@@ -141,7 +149,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
           <h2>Frete</h2>
           {!options ? <p>Calculando frete…</p> : options.length === 0 ? <p role="status">Nenhuma opção de entrega para este endereço.</p> : options.map((o) => (
             <label key={o.service} style={{ display: "block", margin: "4px 0" }}>
-              <input type="radio" name="shipping" checked={o.service === shipping?.service} onChange={() => setService(o.service)} />{" "}
+              <input type="radio" name="shipping" checked={o.service === shipping?.service} onChange={() => { setServerTotal(null); setService(o.service); }} />{" "}
               {o.service}: {formatBRL(o.priceCents)} — {o.days} {o.days === 1 ? "dia útil" : "dias úteis"}
             </label>
           ))}
@@ -150,7 +158,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
       <section>
         <p>Subtotal: {formatBRL(priced.subtotalCents)}</p>
         <p>Frete: {shipping ? formatBRL(shipping.priceCents) : "—"}</p>
-        <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(priced.subtotalCents + (shipping?.priceCents ?? 0))}</strong></p>
+        <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(serverTotal ?? priced.subtotalCents + (shipping?.priceCents ?? 0))}</strong></p>
         {error && <p role="alert">{error}</p>}
         <button type="button" onClick={placeOrder} disabled={busy || !shipping || !addressId || priced.lines.length === 0}
           style={{ padding: "10px 16px", background: "#111", color: "#fff", border: 0 }}>

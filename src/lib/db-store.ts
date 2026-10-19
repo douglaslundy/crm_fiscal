@@ -118,8 +118,6 @@ type Scoped = { [K in StoreModelKey]: Pick<Ext[K], Op & keyof Ext[K]> };
 export type TxOptions = {
   /** Trava a linha da Store (FOR UPDATE) antes de `fn`: serializa leitura+checagem+escrita entre requisicoes da mesma loja (limites de plano, arvore de categorias). */
   lockStore?: boolean;
-  /** Tempo maximo da transacao (padrao do Prisma: 5s). */
-  timeoutMs?: number;
 };
 export type StoreDb = Scoped & { $transaction<T>(fn: (tx: Scoped) => Promise<T>, opts?: TxOptions): Promise<T> };
 
@@ -143,6 +141,6 @@ export function dbForStore(storeId: string): StoreDb {
       ext.$transaction(async (tx) => {
         if (opts?.lockStore) await tx.$queryRaw`SELECT id FROM "Store" WHERE id = ${storeId} FOR UPDATE`;
         return fn(pick(tx));
-      }, opts?.timeoutMs ? { timeout: opts.timeoutMs } : undefined),
+      }),
   };
 }

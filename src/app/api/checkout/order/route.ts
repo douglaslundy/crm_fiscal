@@ -3,6 +3,7 @@ import { z } from "zod";
 import { MAX_QTY } from "@/domain/cart";
 import {
   AddressInvalidError, CartChangedError, createOrder, EmptyCartError, OutOfStockError, OversizeItemError, ShippingOptionInvalidError,
+  TotalChangedError, TotalTooLargeError,
 } from "@/domain/orders";
 import { getStoreCredentials } from "@/domain/storeSettings";
 import { StoreSuspendedError } from "@/domain/subscription";
@@ -20,6 +21,7 @@ const Body = z.object({
     .refine((ls) => new Set(ls.map((l) => l.variantId)).size === ls.length, "Variação repetida"),
   addressId: z.string().min(1).max(64),
   shippingService: z.string().min(1).max(64),
+  expectedTotalCents: z.number().int().min(0).optional(), // so comparado com o total do servidor
 });
 
 /** Cria o pedido do cliente logado na loja do host. Valores sempre do banco e da cotacao refeita no servidor. */
@@ -44,6 +46,8 @@ export async function POST(req: Request) {
     if (e instanceof AddressInvalidError) return err(400, "ENDERECO_INVALIDO");
     if (e instanceof ShippingOptionInvalidError) return err(409, "FRETE_INVALIDO");
     if (e instanceof EmptyCartError) return err(400, "CARRINHO_VAZIO");
+    if (e instanceof TotalChangedError) return err(409, "TOTAL_ALTERADO", { totalCents: e.totalCents });
+    if (e instanceof TotalTooLargeError) return err(422, "TOTAL_MUITO_ALTO");
     if (e instanceof OversizeItemError) return err(422, "ITEM_FORA_DOS_LIMITES");
     if (e instanceof ShippingError) return err(502, "FRETE_INDISPONIVEL");
     throw e;

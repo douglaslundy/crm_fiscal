@@ -2,7 +2,8 @@ import type { Order, OrderItem } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dbForStore } from "@/lib/db-store";
 import { ShippingError, type ShippingProvider } from "@/integrations/shipping/types";
-import { priceCart, type CartIssue, type CartLine } from "./cart";
+import { priceCart, type CartIssue, type CartLine, type PricedLine } from "./cart";
+import { MAX_CENTS } from "./money";
 import { loadVariantRows } from "./cartServer";
 import { buildPackages, hasOversizeItem, quotePackages } from "./shipping";
 import { getSettings } from "./storeSettings";
@@ -22,46 +23,75 @@ export class ShippingOptionInvalidError extends Error { name = "ShippingOptionIn
 export class OversizeItemError extends Error { name = "OversizeItemError"; }
 export class OrderNotFoundError extends Error { name = "OrderNotFoundError"; }
 
-export type CreateOrderInput = { storeId: string; customerId: string; lines: CartLine[]; addressId: string; shippingService: string };
+export class TotalTooLargeError extends Error { name = "TotalTooLargeError"; }
+export class TotalChangedError extends Error {
+  name = "TotalChangedError";
+  constructor(readonly totalCents: number) { super("Total alterado"); }
+}
+
+export type CreateOrderInput = {
+  storeId: string; customerId: string; lines: CartLine[]; addressId: string; shippingService: string;
+  /** Total que o cliente viu; so comparado (o do servidor sempre vale). Diferente = TotalChangedError antes de baixar estoque. */
+  expectedTotalCents?: number;
+};
+type Db = Parameters<typeof loadVariantRows>[0];
+
+/** Preco/estoque do banco; qualquer issue = CartChangedError (nunca ajusta), vazio = EmptyCartError. */
+async function priceOrThrow(db: Db, lines: CartLine[]) {
+  const variants = await loadVariantRows(db, lines.map((l) => l.variantId));
+  const priced = priceCart(lines, variants);
+  if (priced.issues.length > 0) throw new CartChangedError(priced.issues);
+  if (priced.lines.length === 0) throw new EmptyCartError("Carrinho vazio");
+  return { ...priced, sku: new Map(variants.map((v) => [v.id, v.sku])) };
+}
+const pricingKey = (lines: PricedLine[]) => JSON.stringify(lines.map((l) => [l.variantId, l.qty, l.unitCents]));
 
 /**
- * Cria o pedido numa unica transacao: reprecifica do banco, recota o frete no servidor, baixa o estoque e grava os
- * snapshots. Nenhum preco/total do navegador entra aqui. Qualquer divergencia do carrinho = CartChangedError (nunca ajusta).
- * Concorrencia: sem trava da loja; a baixa e um UPDATE condicional por linha (stock >= qty), atomico no Postgres.
- * Linhas em ordem de variantId: dois pedidos com as mesmas variacoes travam na mesma ordem (sem deadlock).
- * shortcut: a cotacao (rede) roda dentro da transacao, segurando uma conexao; mover para antes dela se o pool apertar.
+ * Cria o pedido. Nenhum preco/total do navegador entra aqui.
+ * 1) Fora de transacao: endereco do cliente, precificacao do banco e cotacao do frete no servidor (rede nao segura conexao).
+ * 2) Transacao: reprecifica do banco; mudou algo desde a cotacao (linhas, qtd, preco) = CartChangedError. Baixa o estoque
+ *    e grava pedido + snapshots. Sem trava da loja: a baixa e um UPDATE condicional por linha (stock >= qty), atomico no
+ *    Postgres; linhas em ordem de variantId, entao pedidos com as mesmas variacoes travam na mesma ordem (sem deadlock).
+ * `_testBeforeWrite`: so testes (corrida entre a releitura e a baixa).
  */
-export async function createOrder(input: CreateOrderInput, deps: { provider: ShippingProvider }): Promise<Order & { items: OrderItem[] }> {
+export async function createOrder(
+  input: CreateOrderInput,
+  deps: { provider: ShippingProvider; _testBeforeWrite?: () => Promise<void> },
+): Promise<Order & { items: OrderItem[] }> {
   const { storeId, customerId } = input;
   assertStoreCanSell(await prisma.store.findUniqueOrThrow({ where: { id: storeId }, select: { status: true } }));
+  const db = dbForStore(storeId);
+  // escopo da loja + dono: endereco de outro cliente ou de outra loja nao casa
+  const address = await db.address.findFirst({ where: { id: input.addressId, customerId } });
+  if (!address) throw new AddressInvalidError("Endereço inválido");
+
+  const quoted = await priceOrThrow(db, input.lines);
+  if (quoted.subtotalCents > MAX_CENTS) throw new TotalTooLargeError("Total acima do limite");
+  const dimRows = await db.variant.findMany({
+    where: { id: { in: quoted.lines.map((l) => l.variantId) } },
+    select: { id: true, product: { select: { weightGrams: true, heightCm: true, widthCm: true, lengthCm: true } } },
+  });
+  const dims = new Map(dimRows.map((r) => [r.id, r.product]));
+  if (hasOversizeItem(quoted.lines, dims)) throw new OversizeItemError("Item fora dos limites de envio");
   const { originCep } = await getSettings(storeId);
+  let options;
+  try {
+    options = await quotePackages(deps.provider, { fromCep: originCep, toCep: address.cep, packages: buildPackages(quoted.lines, dims) });
+  } catch (e) {
+    throw e instanceof ShippingError ? e : new ShippingError("Falha na cotação", { cause: e });
+  }
+  const shipping = options.find((o) => o.service === input.shippingService);
+  if (!shipping) throw new ShippingOptionInvalidError("Opção de frete indisponível");
+  const totalCents = quoted.subtotalCents + shipping.priceCents;
+  if (totalCents > MAX_CENTS) throw new TotalTooLargeError("Total acima do limite");
+  if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== totalCents) throw new TotalChangedError(totalCents);
 
-  return dbForStore(storeId).$transaction(async (tx) => {
-    // escopo da loja + dono: endereco de outro cliente ou de outra loja nao casa
-    const address = await tx.address.findFirst({ where: { id: input.addressId, customerId } });
-    if (!address) throw new AddressInvalidError("Endereço inválido");
+  return db.$transaction(async (tx) => {
+    const fresh = await priceOrThrow(tx, input.lines);
+    if (pricingKey(fresh.lines) !== pricingKey(quoted.lines)) throw new CartChangedError([]);
+    await deps._testBeforeWrite?.();
 
-    const variants = await loadVariantRows(tx, input.lines.map((l) => l.variantId));
-    const priced = priceCart(input.lines, variants);
-    if (priced.issues.length > 0) throw new CartChangedError(priced.issues);
-    if (priced.lines.length === 0) throw new EmptyCartError("Carrinho vazio");
-
-    const dimRows = await tx.variant.findMany({
-      where: { id: { in: priced.lines.map((l) => l.variantId) } },
-      select: { id: true, product: { select: { weightGrams: true, heightCm: true, widthCm: true, lengthCm: true } } },
-    });
-    const dims = new Map(dimRows.map((r) => [r.id, r.product]));
-    if (hasOversizeItem(priced.lines, dims)) throw new OversizeItemError("Item fora dos limites de envio");
-    let options;
-    try {
-      options = await quotePackages(deps.provider, { fromCep: originCep, toCep: address.cep, packages: buildPackages(priced.lines, dims) });
-    } catch (e) {
-      throw e instanceof ShippingError ? e : new ShippingError("Falha na cotação", { cause: e });
-    }
-    const shipping = options.find((o) => o.service === input.shippingService);
-    if (!shipping) throw new ShippingOptionInvalidError("Opção de frete indisponível");
-
-    const sorted = [...priced.lines].sort((a, b) => (a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0));
+    const sorted = [...fresh.lines].sort((a, b) => (a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0));
     for (const l of sorted) {
       const { count } = await tx.variant.updateMany({
         where: { id: l.variantId, active: true, stock: { gte: l.qty }, product: { active: true } },
@@ -74,19 +104,18 @@ export async function createOrder(input: CreateOrderInput, deps: { provider: Shi
     const order = await tx.order.create({
       data: {
         storeId, customerId, status: "PENDING_PAYMENT",
-        subtotalCents: priced.subtotalCents, shippingCents: shipping.priceCents, totalCents: priced.subtotalCents + shipping.priceCents,
+        subtotalCents: fresh.subtotalCents, shippingCents: shipping.priceCents, totalCents,
         shippingService: shipping.service, addressSnapshot: { cep, street, number, complement, district, city, state },
       },
     });
-    const sku = new Map(variants.map((v) => [v.id, v.sku]));
     await tx.orderItem.createMany({
-      data: priced.lines.map((l) => ({
-        storeId, orderId: order.id, variantId: l.variantId, productName: l.productName, sku: sku.get(l.variantId)!,
+      data: fresh.lines.map((l) => ({
+        storeId, orderId: order.id, variantId: l.variantId, productName: l.productName, sku: fresh.sku.get(l.variantId)!,
         color: l.color, size: l.size, unitPriceCents: l.unitCents, quantity: l.qty,
       })),
     });
     return { ...order, items: await tx.orderItem.findMany({ where: { orderId: order.id } }) };
-  }, { timeoutMs: 20_000 });
+  });
 }
 
 /** Cancela pedido aguardando pagamento e devolve o estoque uma unica vez (idempotente). Outros status: nada muda. */

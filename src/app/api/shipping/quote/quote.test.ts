@@ -16,12 +16,12 @@ let A: { id: string; slug: string };
 let B: { id: string; slug: string };
 const stores: string[] = [];
 
-async function seed(storeId: string, k: string, o: { weight?: number; height?: number; price?: number; active?: boolean } = {}) {
+async function seed(storeId: string, k: string, o: { weight?: number; height?: number; price?: number; active?: boolean; stock?: number } = {}) {
   const p = await prisma.product.create({
     data: { storeId, slug: `p-${k}-${tag}`, name: `Prod ${k}`, weightGrams: o.weight ?? 400, heightCm: o.height ?? 5, widthCm: 20, lengthCm: 30, active: o.active ?? true },
   });
   return (await prisma.variant.create({
-    data: { storeId, productId: p.id, sku: `sku-${k}-${tag}`, color: "Preto", size: "M", priceCents: o.price ?? 5000, stock: 10 },
+    data: { storeId, productId: p.id, sku: `sku-${k}-${tag}`, color: "Preto", size: "M", priceCents: o.price ?? 5000, stock: o.stock ?? 10 },
   })).id;
 }
 
@@ -95,6 +95,14 @@ describe("POST /api/shipping/quote", () => {
     expect((await res.json()).issues).toEqual([{ variantId: b, kind: "INACTIVE", available: 0 }]);
     expect(quote.mock.calls[0][0].packages).toHaveLength(1);
     expect(quote.mock.calls[0][0].packages[0].weightGrams).toBe(400);
+  });
+
+  it("subtotal acima do int4 (22 x preco maximo) -> 422 TOTAL_MUITO_ALTO, sem cotar", async () => {
+    const a = await seed(A.id, "a", { price: 100_000_000, stock: 50 });
+    const res = await call(A, { cep: "01001000", lines: [{ variantId: a, qty: 22 }] });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "TOTAL_MUITO_ALTO" });
+    expect(quote).not.toHaveBeenCalled();
   });
 
   it("loja suspensa -> 403 STORE_UNAVAILABLE", async () => {

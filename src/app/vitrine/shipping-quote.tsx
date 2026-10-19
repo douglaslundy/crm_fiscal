@@ -10,6 +10,7 @@ export const SHIPPING_ERRORS: Record<string, string> = {
   FRETE_NAO_CONFIGURADO: "Esta loja ainda não configurou o frete.",
   CARRINHO_VAZIO: "Nenhum item disponível para cotar.",
   STORE_UNAVAILABLE: "Loja indisponível no momento.",
+  TOTAL_MUITO_ALTO: "O valor do carrinho passa do limite. Divida em pedidos menores.",
 };
 
 /** Cotacao de frete por CEP para as linhas dadas. Quem usa passa `key` com os itens: itens novos remontam e descartam a cotacao antiga. */

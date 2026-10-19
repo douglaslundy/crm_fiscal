@@ -5,7 +5,13 @@ import { prisma } from "@/lib/db";
 import { STORE_HOST_HEADER } from "@/lib/host";
 
 vi.mock("@/auth", async (orig) => ({ ...(await orig<typeof import("@/auth")>()), getSession: vi.fn() }));
+// createOrder real; o spy so permite forcar o erro de corrida (OutOfStock acontece entre a releitura e a baixa)
+vi.mock("@/domain/orders", async (orig) => {
+  const m = await orig<typeof import("@/domain/orders")>();
+  return { ...m, createOrder: vi.fn(m.createOrder) };
+});
 const getSession = vi.mocked((await import("@/auth")).getSession);
+const orders = await import("@/domain/orders");
 const order = await import("./order/route");
 const address = await import("./address/route");
 
@@ -90,7 +96,7 @@ describe("POST /api/checkout/order", () => {
     expect(await prisma.order.count({ where: { storeId: A.id } })).toBe(0);
   });
 
-  it("mapeia erros do frete: SEM_ESTOQUE (corrida), FRETE_INDISPONIVEL, ITEM_FORA_DOS_LIMITES", async () => {
+  it("mapeia erros: SEM_ESTOQUE (corrida na baixa), CARRINHO_ALTERADO (estoque mudou apos a cotacao), FRETE_INDISPONIVEL, ITEM_FORA_DOS_LIMITES", async () => {
     const v = await mkVariant(A.id, "v", 1);
     login(custA, A.id);
     const body = { lines: [{ variantId: v, qty: 1 }], addressId: custA.addressId, shippingService: "PAC" };
@@ -102,7 +108,7 @@ describe("POST /api/checkout/order", () => {
       });
       const out = await postOrder(body);
       expect(out.status).toBe(409);
-      expect(await out.json()).toEqual({ error: "SEM_ESTOQUE", variantId: v });
+      expect(await out.json()).toEqual({ error: "CARRINHO_ALTERADO", issues: [{ variantId: v, kind: "OUT_OF_STOCK", available: 0 }] });
       await prisma.variant.update({ where: { id: v }, data: { stock: 1 } });
       spy.mockRejectedValueOnce(new Error("segredo-interno"));
       const down = await postOrder(body);
@@ -116,6 +122,34 @@ describe("POST /api/checkout/order", () => {
     expect(big.status).toBe(422);
     expect(await big.json()).toEqual({ error: "ITEM_FORA_DOS_LIMITES" });
     expect((await prisma.variant.findUniqueOrThrow({ where: { id: v } })).stock).toBe(1);
+    vi.mocked(orders.createOrder).mockRejectedValueOnce(new orders.OutOfStockError(v));
+    const race = await postOrder(body);
+    expect(race.status).toBe(409);
+    expect(await race.json()).toEqual({ error: "SEM_ESTOQUE", variantId: v });
+  });
+
+  it("expectedTotalCents: diferente -> 409 TOTAL_ALTERADO com o total real, sem pedido; igual -> 201", async () => {
+    const v = await mkVariant(A.id, "v", 5, 4000);
+    login(custA, A.id);
+    const body = { lines: [{ variantId: v, qty: 1 }], addressId: custA.addressId, shippingService: "PAC" };
+    const res = await postOrder({ ...body, expectedTotalCents: 1 });
+    expect(res.status).toBe(409);
+    const { error, totalCents } = await res.json();
+    expect(error).toBe("TOTAL_ALTERADO");
+    expect(totalCents).toBeGreaterThan(4000);
+    expect(await prisma.order.count({ where: { storeId: A.id } })).toBe(0);
+    const ok = await postOrder({ ...body, expectedTotalCents: totalCents });
+    expect(ok.status).toBe(201);
+    expect((await ok.json()).totalCents).toBe(totalCents);
+  });
+
+  it("total acima do int4 -> 422 TOTAL_MUITO_ALTO, estoque intacto", async () => {
+    const v = await mkVariant(A.id, "v", 50, 100_000_000);
+    login(custA, A.id);
+    const res = await postOrder({ lines: [{ variantId: v, qty: 22 }], addressId: custA.addressId, shippingService: "PAC" });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "TOTAL_MUITO_ALTO" });
+    expect((await prisma.variant.findUniqueOrThrow({ where: { id: v } })).stock).toBe(50);
   });
 
   it("mapeia erros: CARRINHO_ALTERADO, ENDERECO_INVALIDO, FRETE_INVALIDO, CARRINHO_VAZIO, 400 corpo", async () => {
