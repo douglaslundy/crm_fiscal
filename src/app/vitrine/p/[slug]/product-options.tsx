@@ -25,7 +25,7 @@ export function ProductOptions({ name, variants, images, pixPercent }: { name: s
   const image = images.find((i) => color && i.color === color) ?? images[0];
   const price = chosen?.priceCents ?? Math.min(...variants.map((v) => v.priceCents));
   const chip = (active: boolean, disabled: boolean) => ({
-    padding: "6px 10px", marginRight: 6, marginBottom: 6, borderRadius: 4, border: active ? "2px solid #111" : "1px solid #999",
+    padding: "6px 10px", marginRight: 6, marginBottom: 6, borderRadius: 4, border: active ? "2px solid var(--primary, #111)" : "1px solid #999",
     background: disabled ? "#eee" : "#fff", color: disabled ? "#999" : "#111", textDecoration: disabled ? "line-through" : "none",
   });
   return (

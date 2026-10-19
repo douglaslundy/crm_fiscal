@@ -13,6 +13,11 @@ export const STORE_MODELS = [
   "OrderItem",
   "StoreSetting",
   "Coupon",
+  "Collection",
+  "ProductCollection",
+  "Subscriber",
+  "Review",
+  "WishlistItem",
 ] as const;
 
 type Accessor<S extends string> = S extends `${infer F}${infer R}` ? `${Lowercase<F>}${R}` : S;

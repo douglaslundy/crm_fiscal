@@ -19,6 +19,7 @@ export default async function AccountPage() {
     <main style={{ padding: "16px 0", display: "grid", gap: 12 }}>
       <h1>Meus pedidos</h1>
       <Link href="/conta/enderecos">Meus endereços</Link>
+      <Link href="/conta/favoritos">Meus favoritos</Link>
       {orders.length === 0 ? <p>Você ainda não fez pedidos.</p> : (
         <ul style={{ listStyle: "none", padding: 0 }}>
           {orders.map((o) => (

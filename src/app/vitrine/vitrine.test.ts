@@ -6,6 +6,7 @@ import { dbForStore } from "@/lib/db-store";
 import { STORE_HOST_HEADER } from "@/lib/host";
 
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
+vi.mock("@/auth", () => ({ getSession: async () => null })); // visitante anonimo
 const nextHeaders = await import("next/headers");
 const { default: Home } = await import("./page");
 const { default: ProductPage, generateMetadata: productMeta } = await import("./p/[slug]/page");

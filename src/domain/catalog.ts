@@ -9,6 +9,7 @@ const Q_MAX = 80;
 
 export type CatalogFilters = {
   category?: string;
+  collection?: string;
   sizes: string[];
   colors: string[];
   minCents?: number;
@@ -71,6 +72,11 @@ export async function listProducts(storeId: string, f: CatalogFilters): Promise<
     if (!ids) return { items: [], total: 0, page: 1 };
     and.push({ categoryId: { in: ids } });
   }
+  if (f.collection) {
+    const col = await dbForStore(storeId).collection.findFirst({ where: { slug: f.collection, active: true }, select: { id: true } });
+    if (!col) return { items: [], total: 0, page: 1 };
+    and.push({ collections: { some: { collectionId: col.id } } });
+  }
   if (f.q) and.push({ name: { contains: f.q, mode: "insensitive" } });
   const variantMatch: Prisma.VariantWhereInput = {
     active: true,
@@ -125,7 +131,10 @@ const UNSAFE = new RegExp(`[<>&${String.fromCharCode(0x2028, 0x2029)}]`, "g");
 export const jsonLdScript = (data: unknown): string =>
   JSON.stringify(data).replace(UNSAFE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
-export function productJsonLd(p: { name: string; description: string; images: { url: string }[]; variants: { priceCents: number; stock: number }[] }) {
+export function productJsonLd(
+  p: { name: string; description: string; images: { url: string }[]; variants: { priceCents: number; stock: number }[] },
+  rating?: { average: number | null; count: number },
+) {
   const price = Math.min(...p.variants.map((v) => v.priceCents));
   return {
     "@context": "https://schema.org",
@@ -133,6 +142,7 @@ export function productJsonLd(p: { name: string; description: string; images: { 
     name: p.name,
     image: p.images.map((i) => i.url),
     description: p.description,
+    ...(rating && rating.count > 0 && rating.average !== null ? { aggregateRating: { "@type": "AggregateRating", ratingValue: rating.average, reviewCount: rating.count } } : {}),
     offers: {
       "@type": "Offer",
       priceCurrency: "BRL",

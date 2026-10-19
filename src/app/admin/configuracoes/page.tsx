@@ -3,6 +3,8 @@ import { cnameTarget, getDomain } from "@/domain/customDomain";
 import { CREDENTIAL_FIELDS, MAX_PIX_DISCOUNT, getCredentialStatus, getSettings, type CredentialField } from "@/domain/storeSettings";
 import { listInvites, listTeam } from "@/domain/team";
 import { InviteForm } from "@/components/invite-form";
+import { ThemeForm } from "@/components/theme-form";
+import { getTheme } from "@/domain/theme";
 import { adminPage } from "@/lib/admin-api";
 import { prisma } from "@/lib/db";
 
@@ -48,7 +50,7 @@ export default async function ConfiguracoesPage() {
 }
 
 async function OwnerSections(p: { storeId: string; accountId: string; readOnly: boolean; customDomain: boolean }) {
-  const [creds, team, domain, invites] = await Promise.all([getCredentialStatus(p.storeId), listTeam(p.storeId), getDomain(p.storeId), listInvites(p.storeId)]);
+  const [creds, team, domain, invites, theme] = await Promise.all([getCredentialStatus(p.storeId), listTeam(p.storeId), getDomain(p.storeId), listInvites(p.storeId), getTheme(p.storeId)]);
   const status = (f: CredentialField) => creds[f].configured ? `configurado${creds[f].last4 ? ` ••••${creds[f].last4}` : ""}` : "não configurado";
 
   return (
@@ -66,6 +68,11 @@ async function OwnerSections(p: { storeId: string; accountId: string; readOnly: 
             ))}
           </>
         )}
+      </section>
+
+      <section>
+        <h2>Aparência da loja</h2>
+        {p.readOnly ? <p>Loja suspensa: somente leitura.</p> : <ThemeForm primaryColor={theme.primaryColor} logoUrl={theme.logoUrl} />}
       </section>
 
       <section>
