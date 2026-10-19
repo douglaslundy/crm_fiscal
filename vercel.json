@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/billing", "schedule": "0 * * * *" },
+    { "path": "/api/cron/expire-orders", "schedule": "*/5 * * * *" }
+  ]
+}

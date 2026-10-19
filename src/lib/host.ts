@@ -1,0 +1,23 @@
+// Puro (sem banco): usado pelo middleware (edge) e por tenant.ts.
+
+/** Minusculas, sem espacos, sem porta e sem ponto final. */
+export function normalizeHost(host: string | null | undefined): string {
+  return (host ?? "").trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+}
+
+/** Dominio nu da plataforma ou www: nao sao lojas. */
+export function isPlatformHost(host: string, platformDomain: string): boolean {
+  const h = normalizeHost(host);
+  const d = normalizeHost(platformDomain);
+  return h === d || h === `www.${d}`;
+}
+
+/** Header interno com o host da loja; definido so pelo middleware. */
+export const STORE_HOST_HEADER = "x-store-host";
+/** Dominio da plataforma; em producao e obrigatorio (sem padrao localhost). */
+export function platformDomain(): string {
+  const d = process.env.PLATFORM_DOMAIN;
+  if (d) return d;
+  if (process.env.NODE_ENV === "production") throw new Error("PLATFORM_DOMAIN nao definido em producao");
+  return "localhost";
+}
