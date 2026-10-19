@@ -23,7 +23,7 @@ export default async function OrderPage({ params }: Props) {
   const db = dbForStore(store.id);
   const order = await db.order.findFirst({
     where: { id, customerId },
-    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true },
+    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, couponCode: true, discountCents: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true },
   });
   if (!order) notFound();
   const items = await db.orderItem.findMany({ where: { orderId: order.id }, select: { id: true, productName: true, color: true, size: true, quantity: true, unitPriceCents: true } });
@@ -40,6 +40,7 @@ export default async function OrderPage({ params }: Props) {
           ))}
         </ul>
         <p>Subtotal: {formatBRL(order.subtotalCents)}</p>
+        {order.discountCents > 0 && <p>Desconto ({order.couponCode}): −{formatBRL(order.discountCents)}</p>}
         <p>Frete ({order.shippingService}): {formatBRL(order.shippingCents)}</p>
         <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(order.totalCents)}</strong></p>
       </section>

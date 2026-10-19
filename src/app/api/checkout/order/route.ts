@@ -5,6 +5,7 @@ import {
   AddressInvalidError, CartChangedError, createOrder, EmptyCartError, OutOfStockError, OversizeItemError, ShippingOptionInvalidError,
   TotalChangedError, TotalTooLargeError,
 } from "@/domain/orders";
+import { CouponError } from "@/domain/coupons";
 import { getStoreCredentials } from "@/domain/storeSettings";
 import { StoreSuspendedError } from "@/domain/subscription";
 import { getShippingProvider } from "@/integrations/shipping";
@@ -23,6 +24,7 @@ const Body = z.object({
   shippingService: z.string().min(1).max(64),
   expectedTotalCents: z.number().int().min(0).optional(), // so comparado com o total do servidor
   idempotencyKey: z.uuid().optional(), // uma por tentativa de checkout: reenvio devolve o mesmo pedido
+  couponCode: z.string().max(40).optional(),
 });
 
 /** Cria o pedido do cliente logado na loja do host. Valores sempre do banco e da cotacao refeita no servidor. */
@@ -41,6 +43,7 @@ export async function POST(req: Request) {
     const order = await createOrder({ storeId: store.id, customerId, ...parsed.data }, { provider });
     return NextResponse.json({ orderId: order.id, totalCents: order.totalCents }, { status: 201 });
   } catch (e) {
+    if (e instanceof CouponError) return err(e.status, e.code, e.extra);
     if (e instanceof StoreSuspendedError) return err(403, "STORE_UNAVAILABLE");
     if (e instanceof CartChangedError) return err(409, "CARRINHO_ALTERADO", { issues: e.issues });
     if (e instanceof OutOfStockError) return err(409, "SEM_ESTOQUE", { variantId: e.variantId });

@@ -42,7 +42,7 @@ export default async function PedidoPage({ params }: { params: Promise<{ id: str
           ))}
         </tbody>
       </table>
-      <p>Produtos: {formatBRL(o.subtotalCents)}. Frete: {formatBRL(o.shippingCents)}. <strong>Total: {formatBRL(o.totalCents)}</strong></p>
+      <p>Produtos: {formatBRL(o.subtotalCents)}.{o.discountCents > 0 && ` Desconto (${o.couponCode}): −${formatBRL(o.discountCents)}.`} Frete: {formatBRL(o.shippingCents)}. <strong>Total: {formatBRL(o.totalCents)}</strong></p>
       <h2>Andamento</h2>
       {o.trackingCode && <p>Código de rastreio: {o.trackingCode}</p>}
       {!readOnly && o.status === "PAID" && (

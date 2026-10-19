@@ -26,7 +26,7 @@ export async function getOrder(storeId: string, customerId: string, id: string) 
   const db = dbForStore(storeId);
   const order = await db.order.findFirst({
     where: { id, customerId },
-    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, trackingCode: true, addressSnapshot: true, createdAt: true },
+    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, trackingCode: true, addressSnapshot: true, couponCode: true, discountCents: true, createdAt: true },
   });
   if (!order) return null;
   const items = await db.orderItem.findMany({

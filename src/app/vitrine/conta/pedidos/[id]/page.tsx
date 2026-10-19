@@ -36,6 +36,7 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ i
       </ul>
       <p>Entrega: {a.street}, {a.number}{a.complement ? ` - ${a.complement}` : ""}, {a.district}, {a.city}/{a.state}, CEP {a.cep}</p>
       <p>Subtotal: {formatBRL(order.subtotalCents)}</p>
+      {order.discountCents > 0 && <p>Desconto ({order.couponCode}): −{formatBRL(order.discountCents)}</p>}
       <p>Frete ({order.shippingService}): {formatBRL(order.shippingCents)}</p>
       <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(order.totalCents)}</strong></p>
       <Link href="/conta">Voltar aos pedidos</Link>

@@ -72,3 +72,4 @@ Fora da Vercel (servidor próprio, Docker etc.), o next-auth precisa de `AUTH_TR
 - Convite de equipe não envia e-mail: para um e-mail sem conta, o painel mostra uma única vez um link (válido por 7 dias) que o dono repassa ao convidado.
 - Fuso fixo em UTC-3 (Brasil sem horário de verão desde 2019); revisar se o DST voltar.
 - Exportação CSV limitada a 20.000 pedidos (mais recentes); as métricas leem o período inteiro em lotes.
+- Cupons: o limite de uma vez por cliente é conferido sem trava; dois pedidos simultâneos do mesmo cliente podem usar o mesmo cupom duas vezes. O limite total de usos é atômico.

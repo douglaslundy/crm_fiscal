@@ -5,6 +5,7 @@ import { ShippingError, type ShippingProvider } from "@/integrations/shipping/ty
 import { priceCart, type CartIssue, type CartLine, type PricedLine } from "./cart";
 import { MAX_CENTS } from "./money";
 import { loadVariantRows } from "./cartServer";
+import { redeemCoupon, releaseCoupon, validateCoupon } from "./coupons";
 import { buildPackages, hasOversizeItem, quotePackages } from "./shipping";
 import { getSettings } from "./storeSettings";
 import { assertStoreCanSell } from "./subscription";
@@ -35,6 +36,8 @@ export type CreateOrderInput = {
   expectedTotalCents?: number;
   /** Chave do cliente por tentativa de checkout: repetir a mesma chave devolve o pedido ja criado (envio duplo). */
   idempotencyKey?: string;
+  /** Cupom opcional; validado e consumido no servidor (CouponError se invalido). */
+  couponCode?: string;
 };
 type Db = Parameters<typeof loadVariantRows>[0];
 
@@ -90,7 +93,9 @@ export async function createOrder(
   }
   const shipping = options.find((o) => o.service === input.shippingService);
   if (!shipping) throw new ShippingOptionInvalidError("Opção de frete indisponível");
-  const totalCents = quoted.subtotalCents + shipping.priceCents;
+  const quotedCoupon = input.couponCode ? await validateCoupon(db, input.couponCode, customerId, quoted.subtotalCents) : null;
+  const discountCents = quotedCoupon?.discountCents ?? 0;
+  const totalCents = quoted.subtotalCents - discountCents + shipping.priceCents;
   if (totalCents > MAX_CENTS) throw new TotalTooLargeError("Total acima do limite");
   if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== totalCents) throw new TotalChangedError(totalCents);
 
@@ -99,6 +104,15 @@ export async function createOrder(
     const fresh = await priceOrThrow(tx, input.lines);
     if (pricingKey(fresh.lines) !== pricingKey(quoted.lines)) throw new CartChangedError([]);
     await deps._testBeforeWrite?.();
+
+    // cupom relido na transacao: mudou desde a cotacao = total novo (cliente confirma) ou erro do cupom
+    let coupon = null;
+    if (input.couponCode) {
+      const v = await validateCoupon(tx, input.couponCode, customerId, fresh.subtotalCents);
+      if (v.discountCents !== discountCents) throw new TotalChangedError(fresh.subtotalCents - v.discountCents + shipping.priceCents);
+      await redeemCoupon(tx, v.coupon);
+      coupon = v.coupon;
+    }
 
     const sorted = [...fresh.lines].sort((a, b) => (a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0));
     for (const l of sorted) {
@@ -115,7 +129,7 @@ export async function createOrder(
         storeId, customerId, status: "PENDING_PAYMENT",
         subtotalCents: fresh.subtotalCents, shippingCents: shipping.priceCents, totalCents,
         shippingService: shipping.service, addressSnapshot: { cep, street, number, complement, district, city, state },
-        idempotencyKey: key,
+        idempotencyKey: key, couponId: coupon?.id, couponCode: coupon?.code, discountCents,
       },
     });
     await tx.orderItem.createMany({
@@ -145,6 +159,8 @@ export async function cancelOrder(storeId: string, orderId: string, opts: { only
       if (!(await tx.order.findFirst({ where: { id: orderId }, select: { id: true } }))) throw new OrderNotFoundError("Pedido não encontrado");
       return false;
     }
+    const { couponId } = await tx.order.findFirstOrThrow({ where: { id: orderId }, select: { couponId: true } });
+    if (couponId) await releaseCoupon(tx, couponId);
     const items = await tx.orderItem.findMany({ where: { orderId, variantId: { not: null } }, orderBy: { variantId: "asc" } });
     for (const it of items) await tx.variant.updateMany({ where: { id: it.variantId! }, data: { stock: { increment: it.quantity } } });
     return true;
