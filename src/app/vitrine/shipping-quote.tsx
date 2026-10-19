@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatBRL } from "@/domain/money";
 
 type Option = { service: string; priceCents: number; days: number };
@@ -12,28 +12,30 @@ const ERRORS: Record<string, string> = {
   STORE_UNAVAILABLE: "Loja indisponível no momento.",
 };
 
-/** Cotacao de frete por CEP para as linhas dadas (carrinho inteiro ou a variacao escolhida na pagina do produto). */
+/** Cotacao de frete por CEP para as linhas dadas. Quem usa passa `key` com os itens: itens novos remontam e descartam a cotacao antiga. */
 export function ShippingQuote({ lines }: { lines: { variantId: string; qty: number }[] }) {
   const [cep, setCep] = useState("");
   const [busy, setBusy] = useState(false);
   const [options, setOptions] = useState<Option[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const key = JSON.stringify(lines);
-  const [forKey, setForKey] = useState(key);
-  if (forKey !== key) { setForKey(key); setOptions(null); setError(null); } // itens mudaram: cotacao antiga nao vale
+  const ctl = useRef<AbortController | null>(null); // so a ultima consulta vale
+  useEffect(() => () => ctl.current?.abort(), []);
 
   async function calc(e: React.FormEvent) {
     e.preventDefault();
+    ctl.current?.abort();
+    const mine = (ctl.current = new AbortController());
     setBusy(true); setError(null); setOptions(null);
     try {
-      const r = await fetch("/api/shipping/quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cep, lines }) });
+      const r = await fetch("/api/shipping/quote", { signal: mine.signal, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cep, lines }) });
       const data = await r.json().catch(() => null);
+      if (mine.signal.aborted) return;
       if (r.ok) setOptions(data.options);
       else setError(ERRORS[data?.error] ?? "Não foi possível calcular o frete.");
     } catch {
-      setError("Não foi possível calcular o frete.");
+      if (!mine.signal.aborted) setError("Não foi possível calcular o frete.");
     } finally {
-      setBusy(false);
+      if (!mine.signal.aborted) setBusy(false);
     }
   }
 
@@ -47,7 +49,7 @@ export function ShippingQuote({ lines }: { lines: { variantId: string; qty: numb
       {options && (options.length === 0
         ? <p role="status">Nenhuma opção de entrega para este CEP.</p>
         : <ul role="status" style={{ listStyle: "none", padding: 0 }}>
-            {options.map((o) => <li key={o.service}>{o.service}: <strong>{formatBRL(o.priceCents)}</strong> — {o.days} {o.days === 1 ? "dia útil" : "dias úteis"}</li>)}
+            {options.map((o, i) => <li key={`${i}-${o.service}`}>{o.service}: <strong>{formatBRL(o.priceCents)}</strong> — {o.days} {o.days === 1 ? "dia útil" : "dias úteis"}</li>)}
           </ul>)}
     </form>
   );

@@ -16,9 +16,9 @@ let A: { id: string; slug: string };
 let B: { id: string; slug: string };
 const stores: string[] = [];
 
-async function seed(storeId: string, k: string, o: { weight?: number; price?: number; active?: boolean } = {}) {
+async function seed(storeId: string, k: string, o: { weight?: number; height?: number; price?: number; active?: boolean } = {}) {
   const p = await prisma.product.create({
-    data: { storeId, slug: `p-${k}-${tag}`, name: `Prod ${k}`, weightGrams: o.weight ?? 400, heightCm: 5, widthCm: 20, lengthCm: 30, active: o.active ?? true },
+    data: { storeId, slug: `p-${k}-${tag}`, name: `Prod ${k}`, weightGrams: o.weight ?? 400, heightCm: o.height ?? 5, widthCm: 20, lengthCm: 30, active: o.active ?? true },
   });
   return (await prisma.variant.create({
     data: { storeId, productId: p.id, sku: `sku-${k}-${tag}`, color: "Preto", size: "M", priceCents: o.price ?? 5000, stock: 10 },
@@ -133,5 +133,49 @@ describe("POST /api/shipping/quote", () => {
     expect(quote).toHaveBeenCalledTimes(2);
     await call(A, { cep: "01002000", lines: [{ variantId: a, qty: 1 }] });
     expect(quote).toHaveBeenCalledTimes(3);
+  });
+
+  it("unidade acima dos limites -> 422 ITEM_FORA_DOS_LIMITES", async () => {
+    const big = await seed(A.id, "big", { weight: 31000 });
+    const res = await call(A, { cep: "01001000", lines: [{ variantId: big, qty: 1 }] });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "ITEM_FORA_DOS_LIMITES" });
+    expect(quote).not.toHaveBeenCalled();
+  });
+
+  it("resultado vazio nao e cacheado", async () => {
+    const a = await seed(A.id, "a");
+    quote.mockResolvedValue([]);
+    await call(A, { cep: "01001000", lines: [{ variantId: a, qty: 1 }] });
+    await call(A, { cep: "01001000", lines: [{ variantId: a, qty: 1 }] });
+    expect(quote).toHaveBeenCalledTimes(2);
+  });
+
+  it("requisicoes simultaneas identicas dividem 1 chamada ao provedor", async () => {
+    const a = await seed(A.id, "a");
+    let release!: () => void;
+    quote.mockReturnValue(new Promise((r) => { release = () => r([{ service: "PAC", priceCents: 1, days: 1 }]); }));
+    const body = { cep: "01001000", lines: [{ variantId: a, qty: 1 }] };
+    const all = Promise.all([call(A, body), call(A, body), call(A, body)]);
+    await vi.waitFor(() => expect(quote).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 200));
+    release();
+    const res = await all;
+    expect(res.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(quote).toHaveBeenCalledTimes(1);
+  });
+
+  it("21a requisicao no minuto -> 429 MUITAS_REQUISICOES com Retry-After; outro IP e outra loja nao sao afetados", async () => {
+    const a = await seed(A.id, "a");
+    const b = await seed(B.id, "b");
+    const body = { cep: "01001000", lines: [{ variantId: a, qty: 1 }] };
+    const ip = { "x-forwarded-for": "9.9.9.9, 10.0.0.1" };
+    for (let i = 0; i < 20; i++) expect((await call(A, body, ip)).status).toBe(200);
+    const res = await call(A, body, ip);
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "MUITAS_REQUISICOES" });
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect((await call(A, body, { "x-forwarded-for": "8.8.8.8" })).status).toBe(200);
+    expect((await call(B, { cep: "01001000", lines: [{ variantId: b, qty: 1 }] }, ip)).status).toBe(200);
   });
 });

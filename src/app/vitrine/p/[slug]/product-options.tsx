@@ -63,7 +63,7 @@ export function ProductOptions({ name, variants, images, pixPercent }: { name: s
         {chosen && inCart >= chosen.stock && chosen.stock > 0 && <p role="status">Você já tem todas as unidades no carrinho.</p>}
         {added === "ok" && <p role="status">Adicionado ao carrinho. <Link href="/carrinho">Ver carrinho</Link></p>}
         {added === "fail" && <p role="alert">Não foi possível salvar o carrinho neste navegador.</p>}
-        {chosen && chosen.stock > 0 && <ShippingQuote lines={[{ variantId: chosen.id, qty: 1 }]} />}
+        {chosen && chosen.stock > 0 && <ShippingQuote key={chosen.id} lines={[{ variantId: chosen.id, qty: 1 }]} />}
       </div>
     </div>
   );

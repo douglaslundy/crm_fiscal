@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ShippingError, type ShippingProvider } from "@/integrations/shipping/types";
 import type { PricedLine } from "./cart";
-import { LIMITS, MINIMUMS, buildPackages, createQuoteCache, packagesHash } from "./shipping";
+import { LIMITS, MINIMUMS, buildPackages, createQuoteCache, hasOversizeItem, packagesHash, quotePackages } from "./shipping";
 
 const line = (variantId: string, qty: number, unitCents = 1000): PricedLine => ({
   variantId, productName: "P", color: "c", size: "m", qty, unitCents, lineCents: unitCents * qty, imageUrl: null,
@@ -63,5 +64,34 @@ describe("cache de cotacao", () => {
   });
   it("hash muda com o pacote", () => {
     expect(packagesHash(pk)).not.toBe(packagesHash([{ ...pk[0], weightGrams: 101 }]));
+  });
+});
+
+describe("hasOversizeItem", () => {
+  it("detecta unidade sozinha acima de peso, lado ou soma", () => {
+    expect(hasOversizeItem([line("a", 1)], new Map([["a", d(30001, 5, 20, 20)]]))).toBe(true);
+    expect(hasOversizeItem([line("a", 1)], new Map([["a", d(100, 106, 20, 20)]]))).toBe(true);
+    expect(hasOversizeItem([line("a", 1)], new Map([["a", d(100, 100, 60, 60)]]))).toBe(true); // soma 220
+    expect(hasOversizeItem([line("a", 1)], new Map([["a", d(30000, 105, 50, 45)]]))).toBe(false);
+  });
+});
+
+describe("quotePackages", () => {
+  const pk = (w: number) => ({ weightGrams: w, heightCm: 2, widthCm: 11, lengthCm: 16, insuranceCents: 0 });
+  const input = { fromCep: "37175000", toCep: "01001000", packages: [pk(100), pk(200)] };
+  it("1 chamada por pacote; so servicos de todos; soma precos; prazo = maior", async () => {
+    const quote = vi.fn(async ({ packages }: { packages: { weightGrams: number }[] }) =>
+      packages[0].weightGrams === 100
+        ? [{ service: "PAC", priceCents: 1000, days: 5 }, { service: "SEDEX", priceCents: 3000, days: 1 }]
+        : [{ service: "PAC", priceCents: 1500, days: 8 }]);
+    const out = await quotePackages({ quote } as unknown as ShippingProvider, input);
+    expect(quote).toHaveBeenCalledTimes(2);
+    expect(quote.mock.calls.every((c) => c[0].packages.length === 1)).toBe(true);
+    expect(out).toEqual([{ service: "PAC", priceCents: 2500, days: 8 }]);
+  });
+  it("mais de 5 pacotes -> ShippingError sem chamar o provedor", async () => {
+    const quote = vi.fn();
+    await expect(quotePackages({ quote } as unknown as ShippingProvider, { ...input, packages: Array(6).fill(pk(100)) })).rejects.toBeInstanceOf(ShippingError);
+    expect(quote).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
 import type { PricedLine } from "./cart";
-import type { Package, ShippingOption } from "@/integrations/shipping/types";
+import { ShippingError, type Package, type ShippingOption, type ShippingProvider } from "@/integrations/shipping/types";
 
 export type Dims = { weightGrams: number; heightCm: number; widthCm: number; lengthCm: number };
 
 // Regras dos Correios (unico lugar das constantes).
 export const MINIMUMS = { weightGrams: 100, heightCm: 2, widthCm: 11, lengthCm: 16 };
 export const LIMITS = { weightGrams: 30000, sideCm: 105, sumCm: 200 };
+
+export const withinLimits = (p: Dims) =>
+  p.weightGrams <= LIMITS.weightGrams && Math.max(p.heightCm, p.widthCm, p.lengthCm) <= LIMITS.sideCm &&
+  p.heightCm + p.widthCm + p.lengthCm <= LIMITS.sumCm;
+
+/** Alguma unidade, sozinha, ja passa dos limites dos Correios (nao existe divisao possivel). */
+export const hasOversizeItem = (lines: PricedLine[], dims: Map<string, Dims>) =>
+  lines.some((l) => { const d = dims.get(l.variantId); return !!d && !withinLimits(d); });
 
 /**
  * Pacotes a cotar. `dims` = peso/dimensoes do produto por variantId (vem do banco, nunca do navegador).
@@ -17,9 +25,7 @@ export const LIMITS = { weightGrams: 30000, sideCm: 105, sumCm: 200 };
 export function buildPackages(lines: PricedLine[], dims: Map<string, Dims>): Package[] {
   const out: Package[] = [];
   let cur: Package | null = null;
-  const fits = (p: Package) =>
-    p.weightGrams <= LIMITS.weightGrams && Math.max(p.heightCm, p.widthCm, p.lengthCm) <= LIMITS.sideCm &&
-    p.heightCm + p.widthCm + p.lengthCm <= LIMITS.sumCm;
+  const fits = withinLimits;
   for (const l of lines) {
     const d = dims.get(l.variantId);
     if (!d) continue;
@@ -61,7 +67,26 @@ export function createQuoteCache({ ttlMs = 10 * 60 * 1000, max = 500, now = Date
       m.set(k, { at: now(), options });
       while (m.size > max) m.delete(m.keys().next().value as string);
     },
+    key,
     clear: () => m.clear(),
   };
 }
 export const quoteCache = createQuoteCache();
+
+export const MAX_QUOTED_PACKAGES = 5;
+
+/**
+ * Cota cada pacote em separado (o provedor poderia reembalar/juntar nossa divisao) e combina: so servicos
+ * oferecidos para TODOS os pacotes, preco somado, prazo = o maior. Mais de 5 pacotes -> ShippingError.
+ */
+export async function quotePackages(provider: ShippingProvider, input: { fromCep: string; toCep: string; packages: Package[] }): Promise<ShippingOption[]> {
+  if (input.packages.length > MAX_QUOTED_PACKAGES) throw new ShippingError("Pacotes demais para cotar");
+  const per = await Promise.all(input.packages.map((p) => provider.quote({ ...input, packages: [p] })));
+  const [first, ...rest] = per;
+  if (!first) return [];
+  const merged = first.filter((o) => rest.every((r) => r.some((x) => x.service === o.service))).map((o) => {
+    const same = per.map((r) => r.find((x) => x.service === o.service)!);
+    return { service: o.service, priceCents: same.reduce((s, x) => s + x.priceCents, 0), days: Math.max(...same.map((x) => x.days)) };
+  });
+  return merged.sort((a, b) => a.priceCents - b.priceCents);
+}
