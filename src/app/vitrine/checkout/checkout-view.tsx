@@ -11,6 +11,12 @@ import { AddressForm, addressLabel, type Address } from "./address-form";
 
 type Priced = { lines: PricedLine[]; subtotalCents: number; issues: CartIssue[] };
 type Option = { service: string; priceCents: number; days: number };
+const COUPON_ERRORS: Record<string, string> = {
+  COUPON_INVALID: "Cupom inválido ou expirado.",
+  COUPON_EXHAUSTED: "Este cupom esgotou.",
+  COUPON_MIN_SUBTOTAL: "O subtotal não atinge o mínimo deste cupom.",
+  COUPON_ALREADY_USED: "Você já usou este cupom.",
+};
 const ORDER_ERRORS: Record<string, string> = {
   ...SHIPPING_ERRORS,
   CARRINHO_ALTERADO: "Seu carrinho mudou (preço, estoque ou disponibilidade). Confira os itens e tente de novo.",
@@ -19,6 +25,7 @@ const ORDER_ERRORS: Record<string, string> = {
   ENDERECO_INVALIDO: "Endereço inválido. Escolha outro endereço.",
   ITEM_FORA_DOS_LIMITES: "Um item passa dos limites de envio dos Correios.",
   MUITAS_REQUISICOES: "Muitas tentativas. Aguarde um minuto.",
+  ...COUPON_ERRORS,
 };
 const issueText = (i: CartIssue) =>
   i.kind === "QTY_REDUCED" ? `quantidade reduzida para ${i.available}` : i.kind === "OUT_OF_STOCK" ? "esgotado" : "indisponível";
@@ -40,6 +47,9 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
   const [refresh, setRefresh] = useState(0);
   const [done, setDone] = useState(false);
   const [serverTotal, setServerTotal] = useState<number | null>(null); // total do servidor que o cliente ainda precisa confirmar
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discountCents: number; cart: string } | null>(null);
+  const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const attempt = useRef<{ cart: string; id: string } | null>(null);
 
   // Reprecifica o carrinho; a correcao do servidor regrava o carrinho guardado.
@@ -78,13 +88,24 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` representa o conteudo de `stored`
   }, [quoteFor]);
 
+  // desconto vale so para o carrinho em que foi simulado; mudou o carrinho, aplique de novo
+  const discount = coupon?.cart === key ? coupon.discountCents : 0;
+  async function applyCoupon() {
+    setCouponMsg(null);
+    const r = await post("/api/checkout/coupon", { code: couponInput, lines: stored }).catch(() => null);
+    const data = await r?.json().catch(() => null);
+    if (r?.ok) { setServerTotal(null); setCoupon({ code: data.code, discountCents: data.discountCents, cart: key }); return; }
+    setCoupon(null);
+    setCouponMsg(COUPON_ERRORS[data?.error] ?? "Não foi possível aplicar o cupom.");
+  }
+
   async function placeOrder() {
     setBusy(true); setError(null);
     try {
-      const expectedTotalCents = serverTotal ?? (priced && shipping ? priced.subtotalCents + shipping.priceCents : undefined);
+      const expectedTotalCents = serverTotal ?? (priced && shipping ? priced.subtotalCents - discount + shipping.priceCents : undefined);
       // uma chave por carrinho: reenvio (clique duplo, resposta perdida) devolve o mesmo pedido em vez de criar outro
       if (attempt.current?.cart !== key) attempt.current = { cart: key, id: crypto.randomUUID() };
-      const r = await post("/api/checkout/order", { lines: stored, addressId, shippingService: shipping?.service, expectedTotalCents, idempotencyKey: attempt.current.id });
+      const r = await post("/api/checkout/order", { lines: stored, addressId, shippingService: shipping?.service, expectedTotalCents, idempotencyKey: attempt.current.id, couponCode: discount > 0 ? coupon?.code : undefined });
       const data = await r.json().catch(() => null);
       if (r.status === 201) {
         setDone(true);
@@ -160,8 +181,14 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
       )}
       <section>
         <p>Subtotal: {formatBRL(priced.subtotalCents)}</p>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <label>Cupom <input value={couponInput} onChange={(e) => setCouponInput(e.target.value)} maxLength={40} /></label>
+          <button type="button" onClick={applyCoupon} disabled={!couponInput.trim()}>Aplicar</button>
+          {couponMsg && <span role="alert">{couponMsg}</span>}
+        </div>
+        {discount > 0 && <p>Desconto ({coupon?.code}): −{formatBRL(discount)}</p>}
         <p>Frete: {shipping ? formatBRL(shipping.priceCents) : "—"}</p>
-        <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(serverTotal ?? priced.subtotalCents + (shipping?.priceCents ?? 0))}</strong></p>
+        <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(serverTotal ?? priced.subtotalCents - discount + (shipping?.priceCents ?? 0))}</strong></p>
         {error && <p role="alert">{error}</p>}
         <button type="button" onClick={placeOrder} disabled={busy || !shipping || !addressId || priced.lines.length === 0}
           style={{ padding: "10px 16px", background: "#111", color: "#fff", border: 0 }}>

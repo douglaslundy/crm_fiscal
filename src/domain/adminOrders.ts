@@ -105,7 +105,7 @@ export async function getOrderDetail(storeId: string, orderId: string) {
     where: { id: orderId },
     select: {
       id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, trackingCode: true,
-      addressSnapshot: true, createdAt: true, paymentMethod: true,
+      addressSnapshot: true, createdAt: true, paymentMethod: true, couponCode: true, discountCents: true,
       customer: { select: { id: true, name: true, email: true, phone: true } },
       items: { select: { id: true, productName: true, sku: true, color: true, size: true, unitPriceCents: true, quantity: true }, orderBy: { id: "asc" } },
     },

@@ -6,7 +6,7 @@ import { useState, type FormEvent } from "react";
 export type Field = {
   name: string;
   label: string;
-  type?: "text" | "email" | "password" | "number" | "checkbox" | "select";
+  type?: "text" | "email" | "password" | "number" | "checkbox" | "select" | "date";
   options?: { value: string; label: string }[];
   defaultValue?: string | number | boolean | null;
   required?: boolean;
@@ -34,6 +34,9 @@ const MESSAGES: Record<string, string> = {
   CEP_INVALID: "CEP inválido. Use 8 dígitos, ex.: 37175-000.",
   PIX_DISCOUNT_INVALID: "O desconto no Pix deve ser um número inteiro de 0 a 50.",
   INVITE_NOT_FOUND: "Convite não encontrado.",
+  COUPON_CODE_TAKEN: "Já existe um cupom com este código.",
+  COUPON_NOT_FOUND: "Cupom não encontrado.",
+  COUPON_INVALID: "Dados do cupom inválidos.",
   ALREADY_MEMBER: "Este usuário já faz parte da equipe.",
   MEMBER_NOT_FOUND: "Membro não encontrado.",
   CANNOT_REMOVE_OWNER: "O dono da loja não pode ser removido.",

@@ -32,6 +32,8 @@ const settings = await import("./settings/route");
 const credentials = await import("./credentials/route");
 const team = await import("./team/route");
 const teamId = await import("./team/[id]/route");
+const coupons = await import("./coupons/route");
+const couponId = await import("./coupons/[id]/route");
 const teamInvite = await import("./team/invites/[id]/route");
 const exportCsv = await import("./export/route");
 const domain = await import("./domain/route");
@@ -57,6 +59,7 @@ let staffA: Session;
 let staffAId: string;
 let inviteEmail: string;
 let inviteIdA: string;
+let couponIdA: string;
 let ownerB: Session;
 let master: Session;
 let customer: Session;
@@ -83,6 +86,7 @@ beforeEach(async () => {
   storeB = await mk("b", [{ accountId: ob, role: "OWNER" }]);
   staffAId = sa;
   inviteIdA = (await prisma.storeInvite.create({ data: { storeId: storeA, email: `pend-${tag}@t.local`, tokenHash: `h-${tag}`, expiresAt: new Date(Date.now() + 86_400_000) } })).id;
+  couponIdA = (await prisma.coupon.create({ data: { storeId: storeA, code: "TABELA", kind: "PERCENT", value: 5 } })).id;
   await acc("inv");
   inviteEmail = `inv-${tag}@t.local`;
   await prisma.storeDomain.create({ data: { storeId: storeA, host: `dom-${tag}.com.br` } });
@@ -154,6 +158,10 @@ const cases: Case[] = [
   { route: "team", method: "GET", handler: team.GET as Handler, ok: 200, ownerOnly: true },
   { route: "team", method: "POST", handler: team.POST as Handler, ok: 201, ownerOnly: true, body: () => ({ email: inviteEmail }) },
   { route: "team/invites/[id]", method: "DELETE", handler: teamInvite.DELETE as Handler, id: () => inviteIdA, ok: 200, ownerOnly: true },
+  { route: "coupons", method: "GET", handler: coupons.GET as Handler, ok: 200 },
+  { route: "coupons", method: "POST", handler: coupons.POST as Handler, ok: 201, body: () => ({ code: "NOVO10", kind: "PERCENT", value: 10 }) },
+  { route: "coupons/[id]", method: "PATCH", handler: couponId.PATCH as Handler, id: () => couponIdA, ok: 200, body: () => ({ active: false }) },
+  { route: "coupons/[id]", method: "DELETE", handler: couponId.DELETE as Handler, id: () => couponIdA, ok: 200 },
   { route: "team/[id]", method: "DELETE", handler: teamId.DELETE as Handler, id: () => staffAId, ok: 200, ownerOnly: true },
   { route: "export", method: "GET", handler: exportCsv.GET as Handler, ok: 200 },
   { route: "domain", method: "GET", handler: domain.GET as Handler, ok: 200, ownerOnly: true },

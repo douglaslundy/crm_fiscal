@@ -27,6 +27,11 @@ enum MemberRole {
   STAFF
 }
 
+enum CouponKind {
+  PERCENT
+  FIXED
+}
+
 enum OrderStatus {
   PENDING_PAYMENT
   PAID
@@ -75,6 +80,7 @@ model Store {
   members           StoreMember[]
   domains           StoreDomain[]
   invites           StoreInvite[]
+  coupons           Coupon[]
   subscription      Subscription?
   customers         Customer[]
   addresses         Address[]
@@ -166,6 +172,27 @@ model Address {
 
   @@index([storeId])
   @@index([customerId])
+}
+
+model Coupon {
+  id               String     @id @default(cuid())
+  storeId          String
+  /// Maiusculo, [A-Z0-9_-]{3,30}; unico por loja.
+  code             String
+  kind             CouponKind
+  /// PERCENT: 1-100; FIXED: centavos.
+  value            Int
+  minSubtotalCents Int        @default(0)
+  maxUses          Int?
+  usedCount        Int        @default(0)
+  startsAt         DateTime?
+  expiresAt        DateTime?
+  active           Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  store            Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, code])
+  @@unique([storeId, id])
 }
 
 model Category {
@@ -266,6 +293,10 @@ model Order {
   /// Valor cobrado no Pix quando o QR foi criado (o desconto da loja pode mudar depois).
   pixAmountCents  Int?
   idempotencyKey  String?
+  /// Cupom aplicado (sem FK: excluir o cupom nao afeta o historico). subtotalCents e bruto; totalCents = subtotal - discountCents + frete.
+  couponId        String?
+  couponCode      String?
+  discountCents   Int         @default(0)
   createdAt       DateTime    @default(now())
   store           Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   // NoAction de proposito: historico de pedidos protegido (cliente com pedidos nao e apagado).
@@ -276,6 +307,7 @@ model Order {
   @@unique([storeId, idempotencyKey])
   @@index([storeId, status])
   @@index([customerId])
+  @@index([couponId])
 }
 
 model OrderItem {
