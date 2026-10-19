@@ -10,6 +10,8 @@ import { STATUS_LABEL } from "../../status";
 
 export const dynamic = "force-dynamic";
 
+type Addr = { cep: string; street: string; number: string; complement?: string | null; district: string; city: string; state: string };
+
 /** Detalhe do pedido do cliente logado. Pedido de outro cliente/loja = 404. */
 export default async function AccountOrderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -18,6 +20,7 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ i
   const customerId = (await requireCustomer(store.id, `/conta/pedidos/${encodeURIComponent(id)}`)).user.id;
   const order = await getOrder(store.id, customerId, id);
   if (!order) notFound();
+  const a = order.addressSnapshot as Addr;
   return (
     <main style={{ padding: "16px 0", display: "grid", gap: 12 }}>
       <h1>Pedido {order.id}</h1>
@@ -31,6 +34,7 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ i
           </li>
         ))}
       </ul>
+      <p>Entrega: {a.street}, {a.number}{a.complement ? ` - ${a.complement}` : ""}, {a.district}, {a.city}/{a.state}, CEP {a.cep}</p>
       <p>Subtotal: {formatBRL(order.subtotalCents)}</p>
       <p>Frete ({order.shippingService}): {formatBRL(order.shippingCents)}</p>
       <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(order.totalCents)}</strong></p>

@@ -62,7 +62,6 @@ Fora da Vercel (servidor próprio, Docker etc.), o next-auth precisa de `AUTH_TR
 - Cancelar/reembolsar pedido pago é manual (409 `REEMBOLSO_MANUAL`); os alertas (`PAID_FOR_CANCELED_ORDER`, `DUPLICATE_PAYMENT`, `PAYMENT_UNRECONCILABLE`) são apenas linhas JSON em `console.error`.
 - O payload do Melhor Envio não foi verificado contra a API real.
 - O Brick e a API REST do Mercado Pago não foram exercitados contra o serviço real.
-- `middleware.ts` ainda usa o nome depreciado do Next 16 (renomear para `proxy` pendente).
 - Um pagamento de cobrança rejeitado que chega tarde pode marcar a loja como `PAST_DUE`.
 - A exibição do valor da parcela arredonda para baixo.
 - Mesma chave de idempotência com carrinho diferente devolve o pedido antigo.
@@ -70,3 +69,6 @@ Fora da Vercel (servidor próprio, Docker etc.), o next-auth precisa de `AUTH_TR
 - Clientes de uma loja suspensa ou cancelada não conseguem entrar nem ver seus pedidos.
 - O lojista não consegue cancelar um pedido enquanto houver pagamento em andamento (Pix vigente ou cartão em análise): 409 `PAGAMENTO_EM_ABERTO`; o cron cancela no vencimento (cartão em análise: até 72 h).
 - Desconto no Pix limitado a 50%.
+- Convite de equipe não envia e-mail: para um e-mail sem conta, o painel mostra uma única vez um link (válido por 7 dias) que o dono repassa ao convidado.
+- Fuso fixo em UTC-3 (Brasil sem horário de verão desde 2019); revisar se o DST voltar.
+- Exportação CSV limitada a 20.000 pedidos (mais recentes); as métricas leem o período inteiro em lotes.

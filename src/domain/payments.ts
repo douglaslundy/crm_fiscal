@@ -103,7 +103,7 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
   const db = dbForStore(storeId);
   const order = await db.order.findFirst({
     where: { id: orderId, customerId },
-    select: { id: true, status: true, totalCents: true, pixQrCode: true, pixExpiresAt: true, pixAmountCents: true },
+    select: { id: true, status: true, totalCents: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true, pixAmountCents: true },
   });
   if (!order) throw new PayError("NOT_FOUND");
   if (order.status !== "PENDING_PAYMENT") throw new PayError("NOT_PENDING");
@@ -115,11 +115,11 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
     if (order.pixQrCode && order.pixExpiresAt) {
       if (order.pixExpiresAt <= now) throw new PayError("PIX_EXPIRED");
       const amountCents = order.pixAmountCents ?? amountFor("pix", order.totalCents, (await getSettings(storeId)).pixDiscountPercent);
-      return { status: order.status, pix: { qrCode: order.pixQrCode, qrCodeBase64: null, expiresAt: order.pixExpiresAt, amountCents } };
+      return { status: order.status, pix: { qrCode: order.pixQrCode, qrCodeBase64: order.pixQrBase64, expiresAt: order.pixExpiresAt, amountCents } };
     }
     const amountCents = amountFor("pix", order.totalCents, (await getSettings(storeId)).pixDiscountPercent);
     const r = await gw.payPix({ orderId, amountCents, payer }, `order:${orderId}:pix`);
-    const { count } = await db.order.updateMany({ where: pending, data: { mpPaymentId: r.id, pixQrCode: r.qrCode, pixExpiresAt: r.expiresAt, pixAmountCents: amountCents } });
+    const { count } = await db.order.updateMany({ where: pending, data: { mpPaymentId: r.id, paymentMethod: "pix", pixQrCode: r.qrCode, pixQrBase64: r.qrCodeBase64 || null, pixExpiresAt: r.expiresAt, pixAmountCents: amountCents } });
     if (count === 0) throw new PayError("NOT_PENDING");
     return { status: "PENDING_PAYMENT", pix: { qrCode: r.qrCode, qrCodeBase64: r.qrCodeBase64 || null, expiresAt: r.expiresAt, amountCents } };
   }
@@ -130,12 +130,13 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
   const key = `order:${orderId}:card:${createHash("sha256").update(card.token).digest("hex").slice(0, 16)}`;
   const r = await gw.payCard({ orderId, amountCents: order.totalCents, ...card, payer }, key);
   if (r.status === "approved") {
+    await db.order.updateMany({ where: pending, data: { paymentMethod: "card" } });
     // noop = mesmo pagamento ja aplicado (envio duplicado concorrente): continua pago
     if ((await applyPaymentUpdate(storeId, orderId, "approved", r.id)) !== "alert") return { status: "PAID" };
     throw new PayError("NOT_PENDING"); // cancelado no meio (cron) ou pago por outro pagamento: alerta ja emitido
   }
   if (r.status === "pending") {
-    const { count } = await db.order.updateMany({ where: pending, data: { mpPaymentId: r.id } });
+    const { count } = await db.order.updateMany({ where: pending, data: { mpPaymentId: r.id, paymentMethod: "card" } });
     if (count === 0) throw new PayError("NOT_PENDING");
     return { status: "PENDING_PAYMENT" };
   }

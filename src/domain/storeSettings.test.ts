@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { prisma } from "@/lib/db";
 import { PlanLimitError } from "./entitlements";
 import { MAX_PIX_DISCOUNT, SettingsError, getCredentialStatus, getSettings, getStoreCredentials, setCredentials, updateSettings } from "./storeSettings";
-import { inviteStaff, listTeam, removeMember } from "./team";
+import { acceptInvite, inviteStaff, listInvites, listTeam, peekInvite, removeMember, revokeInvite } from "./team";
 import { getDomain, setDomain, validateCustomHost, verifyDomain } from "./customDomain";
 
 let tag: string;
@@ -99,13 +99,44 @@ describe("credenciais", () => {
 });
 
 describe("equipe", () => {
-  it("convida conta existente como STAFF; sem conta 404; repetido 409; lista", async () => {
+  it("convida conta existente como STAFF; repetido 409; lista", async () => {
     const a = await acc("conv");
     await inviteStaff(storeId, `  CONV-${tag}@T.LOCAL `);
     expect(await prisma.storeMember.findUnique({ where: { storeId_accountId: { storeId, accountId: a.id } } })).toMatchObject({ role: "STAFF" });
     expect(await code(inviteStaff(storeId, a.email))).toBe("409 ALREADY_MEMBER");
-    expect(await code(inviteStaff(storeId, `ninguem-${tag}@t.local`))).toBe("404 ACCOUNT_NOT_FOUND");
     expect((await listTeam(storeId)).map((m) => m.role).sort()).toEqual(["OWNER", "STAFF"]);
+  });
+  it("convite para e-mail sem conta: token so no retorno, aceite cria conta STAFF, uso unico", async () => {
+    const email = `novo-${tag}@t.local`;
+    const inv = await inviteStaff(storeId, email);
+    if (inv.status !== "INVITED") throw new Error("esperava convite");
+    expect(JSON.stringify(await prisma.storeInvite.findMany({ where: { storeId } }))).not.toContain(inv.token);
+    expect(await peekInvite(inv.token)).toEqual({ email, storeName: "s" });
+    expect((await listInvites(storeId)).map((i) => i.email)).toEqual([email]);
+    expect(await code(acceptInvite("token-invalido-qualquer", { name: "N", password: "senha-longa-1" }))).toBe("404 INVITE_INVALID");
+    expect(await acceptInvite(inv.token, { name: "Novo", password: "senha-longa-1" })).toEqual({ email });
+    const created = await prisma.account.findUniqueOrThrow({ where: { email } });
+    accountIds.push(created.id);
+    expect(created.passwordHash).not.toBe("senha-longa-1");
+    expect(await prisma.storeMember.findUnique({ where: { storeId_accountId: { storeId, accountId: created.id } } })).toMatchObject({ role: "STAFF" });
+    expect(await code(acceptInvite(inv.token, { name: "N", password: "senha-longa-1" }))).toBe("404 INVITE_INVALID");
+    expect(await peekInvite(inv.token)).toBeNull();
+  });
+  it("convite: novo convite invalida o anterior; vencido invalido; revogar; limite no aceite", async () => {
+    const email = `novo2-${tag}@t.local`;
+    const a = await inviteStaff(storeId, email);
+    const b = await inviteStaff(storeId, email, new Date(Date.now() - 8 * 86400_000));
+    if (a.status !== "INVITED" || b.status !== "INVITED") throw new Error("esperava convite");
+    expect(await peekInvite(a.token)).toBeNull();
+    expect(await peekInvite(b.token)).toBeNull(); // criado "ha 8 dias": vencido
+    const c = await inviteStaff(storeId, email);
+    if (c.status !== "INVITED") throw new Error("esperava convite");
+    const [pending] = await listInvites(storeId);
+    await prisma.plan.update({ where: { id: planId }, data: { staffLimit: 1 } });
+    expect(await code(acceptInvite(c.token, { name: "N", password: "senha-longa-1" }))).toBe("STAFF_LIMIT");
+    expect(await prisma.account.findUnique({ where: { email } })).toBeNull();
+    expect(await code(revokeInvite(storeId, pending.id))).toBe("ok");
+    expect(await code(revokeInvite(storeId, pending.id))).toBe("404 INVITE_NOT_FOUND");
   });
   it("limite do plano: concorrencia no limite-1, so um entra", async () => {
     await prisma.plan.update({ where: { id: planId }, data: { staffLimit: 2 } });

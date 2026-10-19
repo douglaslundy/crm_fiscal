@@ -101,6 +101,14 @@ describe("loadStoreMetrics / exportOrdersCsv (banco)", () => {
     expect(m.byDay).toHaveLength(7);
     expect(m.topProducts).toEqual([{ name: "Camiseta", qty: 2 }]);
   });
+  it("le em lotes sem perder nem repetir pedidos (lote menor que o total)", async () => {
+    const a = await mk("batch", true, false);
+    for (let i = 0; i < 5; i++) await order(a, "PAID", 1000, recent);
+    await order(a, "CANCELED", 9999, recent);
+    const m = await loadStoreMetrics(a.id, 7, now, 2);
+    expect(m).toMatchObject({ revenueCents: 5000, orderCount: 5, topProducts: [{ name: "Camiseta", qty: 10 }] });
+    expect(await loadStoreMetrics(a.id, 7, now, 5)).toEqual(m); // total exato multiplo do lote
+  });
   it("isolamento: pedidos de outra loja nao entram", async () => {
     const a = await mk("a", true, false);
     const b = await mk("b", true, false);

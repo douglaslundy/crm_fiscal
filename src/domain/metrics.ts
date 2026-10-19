@@ -16,7 +16,7 @@ const DAY = 86400_000;
 // shortcut: Sao Paulo fixo em UTC-3 (sem horario de verao desde 2019), reavaliar se o Brasil voltar ao DST.
 const spDay = (d: Date) => new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 10);
 export const DAYS_OPTIONS = [7, 30, 90] as const;
-export const MAX_ROWS = 20000; // shortcut: teto de pedidos lidos por consulta, mais recentes primeiro (acima disso a metrica perde os mais antigos e o CSV omite os mais antigos); mover metricas para groupBy no banco e CSV para streaming.
+export const MAX_ROWS = 20000; // shortcut: teto de linhas do CSV, mais recentes primeiro (os mais antigos sao omitidos); trocar por streaming se alguma loja passar disso.
 
 /** Qualquer valor fora de 7/30/90 vira 30. */
 export const parseDays = (v: unknown): number => {
@@ -26,44 +26,64 @@ export const parseDays = (v: unknown): number => {
 
 export const rangeForDays = (days: number, now = new Date()) => ({ from: new Date(now.getTime() - (days - 1) * DAY - ((now.getTime() - 3 * 3600_000) % DAY)), to: now });
 
-/** Puro. So PAID|SHIPPED|DELIVERED dentro de [from, to]; byDay traz todos os dias (fuso de Sao Paulo), zerados quando sem venda. */
-export function computeMetrics(orders: OrderRow[], range: { from: Date; to: Date }, advanced = true): Metrics {
+/** Acumula pedidos aos poucos (lotes do banco). So PAID|SHIPPED|DELIVERED dentro de [from, to]; byDay traz todos os dias (fuso de Sao Paulo), zerados quando sem venda. */
+export function createAccumulator(range: { from: Date; to: Date }, advanced = true) {
   const byDay = new Map<string, number>();
   for (let t = range.from.getTime(); advanced && spDay(new Date(t)) <= spDay(range.to); t += DAY) byDay.set(spDay(new Date(t)), 0);
   const qty = new Map<string, number>();
   let revenueCents = 0;
   let orderCount = 0;
-  for (const o of orders) {
-    if (!COUNTED.includes(o.status) || o.createdAt < range.from || o.createdAt > range.to) continue;
-    revenueCents += o.totalCents;
-    orderCount++;
-    if (!advanced) continue;
-    byDay.set(spDay(o.createdAt), (byDay.get(spDay(o.createdAt)) ?? 0) + o.totalCents);
-    for (const i of o.items) qty.set(i.name, (qty.get(i.name) ?? 0) + i.quantity);
-  }
   return {
-    revenueCents,
-    orderCount,
-    avgTicketCents: orderCount === 0 ? 0 : Math.floor(revenueCents / orderCount),
-    topProducts: [...qty].map(([name, q]) => ({ name, qty: q })).sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name)).slice(0, 5),
-    byDay: [...byDay].map(([date, revenueCents]) => ({ date, revenueCents })),
+    add(o: OrderRow) {
+      if (!COUNTED.includes(o.status) || o.createdAt < range.from || o.createdAt > range.to) return;
+      revenueCents += o.totalCents;
+      orderCount++;
+      if (!advanced) return;
+      byDay.set(spDay(o.createdAt), (byDay.get(spDay(o.createdAt)) ?? 0) + o.totalCents);
+      for (const i of o.items) qty.set(i.name, (qty.get(i.name) ?? 0) + i.quantity);
+    },
+    result(): Metrics {
+      return {
+        revenueCents,
+        orderCount,
+        avgTicketCents: orderCount === 0 ? 0 : Math.floor(revenueCents / orderCount),
+        topProducts: [...qty].map(([name, q]) => ({ name, qty: q })).sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name)).slice(0, 5),
+        byDay: [...byDay].map(([date, revenueCents]) => ({ date, revenueCents })),
+      };
+    },
   };
+}
+
+/** Puro; versao de uma passada de createAccumulator. */
+export function computeMetrics(orders: OrderRow[], range: { from: Date; to: Date }, advanced = true): Metrics {
+  const acc = createAccumulator(range, advanced);
+  for (const o of orders) acc.add(o);
+  return acc.result();
 }
 
 export type StoreMetrics = Pick<Metrics, "revenueCents" | "orderCount" | "avgTicketCents"> & Partial<Pick<Metrics, "topProducts" | "byDay">>;
 
-/** Dados da pagina: byDay/topProducts so existem no resultado se o plano tem advancedMetrics (nem sao enviados ao Start). */
-export async function loadStoreMetrics(storeId: string, days: number, now = new Date()): Promise<StoreMetrics> {
+const BATCH = 2000;
+
+/** Dados da pagina: byDay/topProducts so existem no resultado se o plano tem advancedMetrics (nem sao enviados ao Start). Le todo o periodo em lotes por id (sem teto de pedidos). */
+export async function loadStoreMetrics(storeId: string, days: number, now = new Date(), batch = BATCH): Promise<StoreMetrics> {
   const advanced = (await getFeatures(storeId)).advancedMetrics;
   const range = rangeForDays(days, now);
-  const rows = await dbForStore(storeId).order.findMany({
-    where: { status: { in: COUNTED }, createdAt: { gte: range.from, lte: range.to } },
-    // Start nao le os itens: byDay/topProducts nem sao calculados.
-    select: { status: true, totalCents: true, createdAt: true, ...(advanced ? { items: { select: { productName: true, quantity: true } } } : {}) },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: MAX_ROWS,
-  });
-  const m = computeMetrics(rows.map((r) => ({ ...r, items: "items" in r ? r.items.map((i) => ({ name: i.productName, quantity: i.quantity })) : [] })), range, advanced);
+  const db = dbForStore(storeId);
+  const acc = createAccumulator(range, advanced);
+  for (let after: string | undefined; ; ) {
+    const rows = await db.order.findMany({
+      where: { status: { in: COUNTED }, createdAt: { gte: range.from, lte: range.to }, ...(after ? { id: { gt: after } } : {}) },
+      // Start nao le os itens: byDay/topProducts nem sao calculados.
+      select: { id: true, status: true, totalCents: true, createdAt: true, ...(advanced ? { items: { select: { productName: true, quantity: true } } } : {}) },
+      orderBy: { id: "asc" },
+      take: batch,
+    });
+    for (const r of rows) acc.add({ ...r, items: "items" in r ? r.items.map((i) => ({ name: i.productName, quantity: i.quantity })) : [] });
+    if (rows.length < batch) break;
+    after = rows[rows.length - 1].id;
+  }
+  const m = acc.result();
   const { revenueCents, orderCount, avgTicketCents } = m;
   return advanced ? m : { revenueCents, orderCount, avgTicketCents };
 }

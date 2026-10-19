@@ -74,6 +74,7 @@ model Store {
   createdAt         DateTime       @default(now())
   members           StoreMember[]
   domains           StoreDomain[]
+  invites           StoreInvite[]
   subscription      Subscription?
   customers         Customer[]
   addresses         Address[]
@@ -95,6 +96,19 @@ model StoreMember {
 
   @@id([storeId, accountId])
   @@index([accountId])
+}
+
+/// Convite de equipe para e-mail sem conta; o token so existe no link (aqui fica o hash).
+model StoreInvite {
+  id        String   @id @default(cuid())
+  storeId   String
+  email     String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, email])
 }
 
 model StoreDomain {
@@ -244,6 +258,10 @@ model Order {
   addressSnapshot Json
   mpPaymentId     String?     @unique
   pixQrCode       String?
+  /// PNG do QR em base64 (para reexibir a imagem ao recarregar a pagina).
+  pixQrBase64     String?
+  /// "pix" | "card"; definido quando o pagamento e iniciado.
+  paymentMethod   String?
   pixExpiresAt    DateTime?
   /// Valor cobrado no Pix quando o QR foi criado (o desconto da loja pode mudar depois).
   pixAmountCents  Int?

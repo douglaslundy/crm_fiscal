@@ -230,7 +230,7 @@ describe("dbForStore: superficie", () => {
     const withStoreId = Prisma.dmmf.datamodel.models
       .filter((m) => m.fields.some((f) => f.name === "storeId"))
       .map((m) => m.name);
-    const platform = ["StoreMember", "StoreDomain", "Subscription"]; // tem storeId mas sao da plataforma
+    const platform = ["StoreMember", "StoreDomain", "StoreInvite", "Subscription"]; // tem storeId mas sao da plataforma
     expect(withStoreId.filter((n) => !platform.includes(n)).sort()).toEqual([...STORE_MODELS].sort());
     const all = Prisma.dmmf.datamodel.models.map((m) => m.name);
     expect(all.filter((n) => !STORE_MODELS.includes(n as never) && !platform.includes(n)).sort()).toEqual(["Account", "Plan", "Store"]);
