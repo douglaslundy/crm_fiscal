@@ -4,6 +4,7 @@ const ERRORS: Record<SubscriptionActionCode | "CONFIRMAR", string> = {
   PLAN_NOT_AVAILABLE: "Plano indisponível.",
   ALREADY_SUBSCRIBED: "Você já tem uma assinatura. Use \"Trocar plano\".",
   NO_ACTIVE_SUBSCRIPTION: "Só é possível trocar de plano com a assinatura em dia.",
+  SUSPENDED_BY_MASTER: "Sua loja foi suspensa pela plataforma. Fale com o suporte para reativar.",
   CONFIRMAR: "Marque a confirmação para cancelar.",
 };
 

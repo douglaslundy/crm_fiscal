@@ -251,6 +251,16 @@ describe("acoes do painel", () => {
     await expect(startCheckout(id, planId, "d@t.local", fake)).rejects.toBeInstanceOf(SubscriptionActionError);
   });
 
+  it("loja suspensa pelo master: startCheckout recusa (SUSPENDED_BY_MASTER) sem criar assinatura; cancelled mantem a trava", async () => {
+    const id = await newStore();
+    await prisma.store.update({ where: { id }, data: { status: "SUSPENDED", suspendedByMaster: true } });
+    await applyBillingEvent(id, "cancelled", NOW);
+    expect(await prisma.store.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "CANCELED", suspendedByMaster: true });
+    const before = fake.subs.size;
+    await expect(startCheckout(id, planId, "d@t.local", fake)).rejects.toMatchObject({ code: "SUSPENDED_BY_MASTER" });
+    expect(fake.subs.size).toBe(before);
+  });
+
   it("changeStorePlan so com assinatura ACTIVE e plano ativo", async () => {
     const id = await newStore();
     await expect(changeStorePlan(id, otherPlanId, fake)).rejects.toMatchObject({ code: "NO_ACTIVE_SUBSCRIPTION" });

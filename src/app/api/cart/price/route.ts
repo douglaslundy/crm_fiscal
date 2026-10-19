@@ -20,8 +20,10 @@ export async function POST(req: Request) {
   if (isStoreBlocked(store)) return NextResponse.json({ error: "STORE_UNAVAILABLE" }, { status: 403 });
   const rl = priceLimiter.check(`${store.id}|${clientIp(req.headers)}`);
   if (!rl.ok) return NextResponse.json({ error: "MUITAS_REQUISICOES" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  const tooBig = () => NextResponse.json({ error: "CORPO_GRANDE_DEMAIS" }, { status: 413 });
+  if (Number(req.headers.get("content-length")) > MAX_BODY) return tooBig(); // recusa antes de ler o corpo
   const raw = await req.text().catch(() => "");
-  if (raw.length > MAX_BODY) return NextResponse.json({ error: "CORPO_GRANDE_DEMAIS" }, { status: 413 });
+  if (Buffer.byteLength(raw) > MAX_BODY) return tooBig(); // sem content-length (chunked) ou mentindo
   let json: unknown = null;
   try { json = JSON.parse(raw); } catch {}
   const parsed = Body.safeParse(json);

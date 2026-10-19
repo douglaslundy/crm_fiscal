@@ -122,7 +122,7 @@ export function assertStoreWritable(store: { status: StoreStatus }): void {
 
 // ---------- acoes do painel (pagina Assinatura) ----------
 
-export type SubscriptionActionCode = "PLAN_NOT_AVAILABLE" | "ALREADY_SUBSCRIBED" | "NO_ACTIVE_SUBSCRIPTION";
+export type SubscriptionActionCode = "PLAN_NOT_AVAILABLE" | "ALREADY_SUBSCRIBED" | "NO_ACTIVE_SUBSCRIPTION" | "SUSPENDED_BY_MASTER";
 export class SubscriptionActionError extends Error {
   name = "SubscriptionActionError";
   constructor(readonly code: SubscriptionActionCode) {
@@ -136,8 +136,12 @@ async function activePlan(planId: string) {
 }
 const subOf = (storeId: string) => prisma.subscription.findUniqueOrThrow({ where: { storeId } });
 
-/** Gera o link de pagamento. Recusa se ja ha assinatura em dia ou em atraso (usar trocar plano / regularizar no MP). */
+/** Gera o link de pagamento. Recusa se ja ha assinatura em dia ou em atraso (usar trocar plano / regularizar no MP) ou se o master suspendeu a loja. */
 export async function startCheckout(storeId: string, planId: string, payerEmail: string, gw: BillingGateway): Promise<string> {
+  // suspensa pelo master: pagar nao reativa (so o master libera), entao nem gera cobranca
+  if ((await prisma.store.findUniqueOrThrow({ where: { id: storeId }, select: { suspendedByMaster: true } })).suspendedByMaster) {
+    throw new SubscriptionActionError("SUSPENDED_BY_MASTER");
+  }
   await activePlan(planId);
   const sub = await subOf(storeId);
   if (sub.status === "ACTIVE" || sub.status === "PAST_DUE") throw new SubscriptionActionError("ALREADY_SUBSCRIBED");

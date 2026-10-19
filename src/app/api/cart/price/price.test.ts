@@ -96,8 +96,11 @@ describe("POST /api/cart/price", () => {
       expect((await call(A, b)).status, JSON.stringify(b).slice(0, 40)).toBe(400);
     }
   });
-  it("corpo acima de 16 KB -> 413", async () => {
+  it("corpo acima de 16 KB -> 413: pelo content-length antes de ler, e pelos bytes (UTF-8) depois", async () => {
     expect((await call(A, JSON.stringify({ lines: [], pad: "x".repeat(17_000) }))).status).toBe(413);
+    expect((await call(A, { lines: [] }, { "content-length": "999999" })).status).toBe(413); // nem le o corpo
+    // 6000 caracteres de 3 bytes = 18 KB: passaria se contasse caracteres
+    expect((await call(A, JSON.stringify({ lines: [], pad: "€".repeat(6000) }))).status).toBe(413);
   });
   it("429 apos 60 consultas por minuto do mesmo IP na loja; outra loja segue", async () => {
     const ip = { "x-forwarded-for": `10.1.0.${tag}` };

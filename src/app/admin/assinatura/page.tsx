@@ -75,7 +75,8 @@ export default async function AssinaturaPage({ searchParams }: Props) {
   return (
     <main>
       <h1>Assinatura</h1>
-      {sp.erro && <p role="alert">{errorMessage(sp.erro)}</p>}
+      {store.suspendedByMaster && <p role="alert">{errorMessage("SUSPENDED_BY_MASTER")}</p>}
+      {sp.erro && sp.erro !== "SUSPENDED_BY_MASTER" && <p role="alert">{errorMessage(sp.erro)}</p>}
       {sp.ok === "plano" && <p role="status">Plano alterado.</p>}
       {sp.ok === "cancelada" && <p role="status">Assinatura cancelada.</p>}
 
