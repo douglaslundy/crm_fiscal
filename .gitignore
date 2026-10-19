@@ -8,3 +8,5 @@ node_modules/
 next-env.d.ts
 *.tsbuildinfo
 public/uploads/
+test-results/
+playwright-report/
