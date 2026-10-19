@@ -128,12 +128,15 @@ describe("listas", () => {
     expect(await ids({ q: "MARIA" })).toEqual([mid]);
     expect(await ids({ q: `c-${tag}@t.local` })).toEqual([nw, old]);
     expect(await ids({ q: nw.slice(0, 10) })).toEqual([nw]);
+    for (const q of ["%", "_", "\\"]) expect(await ids({ q }), q).toEqual([]); // curinga do LIKE e literal
     for (let i = 0; i < 20; i++) await mkOrder(S, cust, "PAID", { createdAt: new Date("2026-04-01T12:00:00Z") });
     const p2 = await listOrders(S, { page: 2 });
     expect(p2).toMatchObject({ total: 23, pageSize: 20 });
     expect(p2.items).toHaveLength(3);
     expect(parseListQuery({ page: "99999" })).toBeNull();
     expect(parseListQuery({ from: "x" })).toBeNull();
+    for (const d of ["2026-02-31", "2026-02-29", "2026-13-01", "2026-00-10"]) expect(parseListQuery({ from: d }), d).toBeNull();
+    expect(parseListQuery({ from: "2028-02-29" })).toEqual({ from: "2028-02-29" });
     expect(parseListQuery({ status: "PAID", q: " ana " })).toEqual({ status: "PAID", q: "ana" });
   });
   it("detalhe nao expoe segredos de pagamento", async () => {
@@ -159,5 +162,7 @@ describe("listas", () => {
     expect(all.items.find((i) => i.id === c2)).toMatchObject({ orderCount: 0, totalSpentCents: 0 });
     expect((await listCustomers(S, { q: "ZED" })).items.map((i) => i.id)).toEqual([c2]);
     expect((await listCustomers(S, { q: "oc-" })).items).toEqual([]);
+    expect((await listCustomers(S, { q: "%" })).items).toEqual([]);
+    expect((await listCustomers(S, { q: "_" })).items).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
-import { getProductBySlug, isStoreOpen, jsonLdScript, productJsonLd } from "@/domain/catalog";
+import { getProductBySlug as findProduct, isStoreOpen, jsonLdScript, metaDescription, productJsonLd } from "@/domain/catalog";
 import { getSettings } from "@/domain/storeSettings";
 import { getCurrentStore } from "@/lib/tenant";
 import { Unavailable } from "../../catalog-view";
@@ -7,7 +8,17 @@ import { ProductOptions } from "./product-options";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
+const getProductBySlug = cache(findProduct); // metadata e pagina na mesma requisicao: uma consulta so
+type Props = { params: Promise<{ slug: string }> };
+
+export async function generateMetadata({ params }: Props) {
+  const store = await getCurrentStore();
+  const product = isStoreOpen(store) ? await getProductBySlug(store.id, (await params).slug) : null;
+  if (!product) return {}; // fica o titulo do layout (nome da loja)
+  return { title: `${product.name} | ${store.name}`, description: metaDescription(product.description, `${product.name} na ${store.name}`) };
+}
+
+export default async function ProductPage({ params }: Props) {
   const store = await getCurrentStore();
   if (!isStoreOpen(store)) return <Unavailable />;
   const { slug } = await params;

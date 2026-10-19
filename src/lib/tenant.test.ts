@@ -19,8 +19,8 @@ afterEach(async () => {
 });
 afterAll(() => prisma.$disconnect());
 
-async function storeWithDomain(host: string, verified: boolean) {
-  const planId = (await prisma.plan.findFirstOrThrow()).id;
+async function storeWithDomain(host: string, verified: boolean, customDomain = true) {
+  const planId = (await prisma.plan.findFirstOrThrow({ where: { customDomain } })).id;
   const tag = Math.random().toString(36).slice(2, 8);
   const s = await prisma.store.create({ data: { slug: `dom-${tag}`, name: "D", planId, domains: { create: { host, verified } } } });
   stores.push(s.id);
@@ -50,6 +50,14 @@ describe("resolveStoreByHost", () => {
     expect(await resolveStoreByHost(`nv-${tag}.com.br`, PD)).toBeNull();
     const id = await storeWithDomain(`ok-${tag}.com.br`, true);
     expect((await resolveStoreByHost(`OK-${tag}.com.br:443`, PD))?.id).toBe(id);
+    expect(await resolveStoreByHost(`ok-${tag}.com.br`, PD)).not.toHaveProperty("plan");
+  });
+  it("dominio proprio verificado de loja cujo plano nao inclui dominio proprio -> null (subdominio segue)", async () => {
+    const tag = Math.random().toString(36).slice(2, 8);
+    const id = await storeWithDomain(`semplano-${tag}.com.br`, true, false);
+    expect(await resolveStoreByHost(`semplano-${tag}.com.br`, PD)).toBeNull();
+    const { slug } = await prisma.store.findUniqueOrThrow({ where: { id } });
+    expect((await resolveStoreByHost(`${slug}.${PD}`, PD))?.id).toBe(id);
   });
 });
 

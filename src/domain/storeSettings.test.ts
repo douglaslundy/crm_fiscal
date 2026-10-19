@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { PlanLimitError } from "./entitlements";
 import { SettingsError, getCredentialStatus, getSettings, getStoreCredentials, setCredentials, updateSettings } from "./storeSettings";
@@ -72,6 +72,18 @@ describe("credenciais", () => {
     expect(JSON.stringify(st)).not.toContain(SECRET);
     expect(await getStoreCredentials(storeId)).toEqual({ mpAccessToken: SECRET, melhorEnvioToken: "me-token-abcdef12" });
   });
+  it("linha que nao decifra: status mostra nao configurado e loga aviso (sem 500); uso interno falha", async () => {
+    await setCredentials(storeId, { mpAccessToken: SECRET, mpPublicKey: "pk-1234567890" });
+    await prisma.storeSetting.updateMany({ where: { storeId, key: "cred.mpAccessToken" }, data: { value: "lixo-corrompido" } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const st = await getCredentialStatus(storeId);
+    expect(st.mpAccessToken).toEqual({ configured: false, last4: null });
+    expect(st.mpPublicKey).toEqual({ configured: true, last4: "7890" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0])).not.toContain("lixo");
+    warn.mockRestore();
+    await expect(getStoreCredentials(storeId)).rejects.toThrow();
+  });
   it("vazio mantem, clear apaga, segredo curto nao mostra last4", async () => {
     await setCredentials(storeId, { mpAccessToken: SECRET, mpPublicKey: "abc" });
     await setCredentials(storeId, { mpAccessToken: "", mpPublicKey: "  " });
@@ -129,6 +141,27 @@ describe("dominio proprio", () => {
     storeIds.push(other.id);
     expect(await code(setDomain(other.id, `nova-${tag}.com.br`))).toBe("409 DOMAIN_TAKEN");
     expect(await code(setDomain(storeId, "https://x.com"))).toBe("400 DOMAIN_INVALID");
+  });
+  it("pedido nao verificado de outra loja ha 7+ dias expira e libera o host; verificado nunca expira", async () => {
+    const host = `disputa-${tag}.com.br`;
+    const other = await prisma.store.create({ data: { slug: `t11c-${tag}`, name: "c", planId } });
+    storeIds.push(other.id);
+    await setDomain(other.id, host);
+    const old = new Date(Date.now() - 8 * 86_400_000);
+    await prisma.storeDomain.updateMany({ where: { storeId: other.id }, data: { createdAt: old, verified: true } });
+    expect(await code(setDomain(storeId, host))).toBe("409 DOMAIN_TAKEN"); // verificado vence
+    await prisma.storeDomain.updateMany({ where: { storeId: other.id }, data: { createdAt: new Date(), verified: false } });
+    expect(await code(setDomain(storeId, host))).toBe("409 DOMAIN_TAKEN"); // pedido recente ainda segura
+    await prisma.storeDomain.updateMany({ where: { storeId: other.id }, data: { createdAt: old } });
+    expect(await setDomain(storeId, host)).toMatchObject({ host, verified: false });
+    expect(await getDomain(other.id)).toMatchObject({ host: null });
+  });
+  it("plano rebaixado: verificar recusa (DOMAIN_NOT_ALLOWED) e nada muda", async () => {
+    const host = `rebaixa-${tag}.com`;
+    await setDomain(storeId, host);
+    await prisma.plan.update({ where: { id: planId }, data: { customDomain: false } });
+    expect(await code(verifyDomain(storeId, async () => ["cname.vercel-dns.com"]))).toBe("DOMAIN_NOT_ALLOWED");
+    expect(await getDomain(storeId)).toMatchObject({ host, verified: false });
   });
   it("plano sem dominio proprio -> DOMAIN_NOT_ALLOWED", async () => {
     await prisma.plan.update({ where: { id: planId }, data: { customDomain: false } });

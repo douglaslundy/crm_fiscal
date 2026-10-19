@@ -4,6 +4,7 @@ import { dbForStore } from "@/lib/db-store";
 // Vitrine publica: so le, sempre por dbForStore (nenhum dado de outra loja aparece).
 
 export const PAGE_SIZE = 24;
+export const MAX_PAGE = 1000;
 const Q_MAX = 80;
 
 export type CatalogFilters = {
@@ -37,7 +38,7 @@ export function parseCatalogFilters(sp: URLSearchParams): CatalogFilters {
   const page = cents(sp.get("page"));
   const q = (sp.get("q") ?? "").trim().slice(0, Q_MAX) || undefined;
   const category = sp.get("category")?.trim() || undefined;
-  const f: CatalogFilters = { sizes: values(sp, "size"), colors: values(sp, "color"), page: page && page >= 1 ? page : 1 };
+  const f: CatalogFilters = { sizes: values(sp, "size"), colors: values(sp, "color"), page: page && page >= 1 ? Math.min(page, MAX_PAGE) : 1 };
   if (category) f.category = category;
   if (minCents !== undefined) f.minCents = minCents;
   if (maxCents !== undefined) f.maxCents = maxCents;
@@ -62,11 +63,12 @@ async function categoryIds(storeId: string, slug: string): Promise<string[] | nu
 const anyOf = (field: "size" | "color", vs: string[]): Prisma.VariantWhereInput[] =>
   vs.length ? [{ OR: vs.map((v) => ({ [field]: { equals: v, mode: "insensitive" } })) }] : [];
 
-export async function listProducts(storeId: string, f: CatalogFilters): Promise<{ items: ProductCard[]; total: number }> {
+/** `page` devolvida = pagina realmente mostrada (pedido alem do fim cai na ultima). */
+export async function listProducts(storeId: string, f: CatalogFilters): Promise<{ items: ProductCard[]; total: number; page: number }> {
   const and: Prisma.ProductWhereInput[] = [{ active: true }];
   if (f.category) {
     const ids = await categoryIds(storeId, f.category);
-    if (!ids) return { items: [], total: 0 };
+    if (!ids) return { items: [], total: 0, page: 1 };
     and.push({ categoryId: { in: ids } });
   }
   if (f.q) and.push({ name: { contains: f.q, mode: "insensitive" } });
@@ -78,25 +80,24 @@ export async function listProducts(storeId: string, f: CatalogFilters): Promise<
   and.push({ variants: { some: variantMatch } });
   const where = { AND: and };
   const db = dbForStore(storeId);
-  const [rows, total] = await Promise.all([
-    db.product.findMany({
-      where,
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      skip: (f.page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      select: {
-        id: true, slug: true, name: true,
-        variants: { where: { active: true }, select: { priceCents: true, stock: true } },
-        images: { orderBy: { position: "asc" }, take: 1, select: { url: true } },
-      },
-    }),
-    db.product.count({ where }),
-  ]);
+  const total = await db.product.count({ where });
+  const page = Math.min(f.page, Math.max(1, Math.ceil(total / PAGE_SIZE)));
+  const rows = await db.product.findMany({
+    where,
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    skip: (page - 1) * PAGE_SIZE,
+    take: PAGE_SIZE,
+    select: {
+      id: true, slug: true, name: true,
+      variants: { where: { active: true }, select: { priceCents: true, stock: true } },
+      images: { orderBy: { position: "asc" }, take: 1, select: { url: true } },
+    },
+  });
   const items = rows.map(({ variants, images, ...p }) => {
     const stock = variants.reduce((s, v) => s + v.stock, 0);
     return { ...p, imageUrl: images[0]?.url ?? null, minPriceCents: Math.min(...variants.map((v) => v.priceCents)), soldOut: stock === 0, lastUnit: stock === 1 };
   });
-  return { items, total };
+  return { items, total, page };
 }
 
 /** Produto ativo com variacoes ativas desta loja; null (pagina responde 404) caso contrario. */
@@ -140,6 +141,10 @@ export function productJsonLd(p: { name: string; description: string; images: { 
     },
   };
 }
+
+/** Descricao para <meta>: espacos colapsados, ate 160 caracteres; vazia usa o fallback. */
+export const metaDescription = (text: string | null | undefined, fallback: string) =>
+  text?.replace(/\s+/g, " ").trim().slice(0, 160) || fallback;
 
 export const getCategoryBySlug = (storeId: string, slug: string) =>
   dbForStore(storeId).category.findFirst({ where: { slug }, select: { id: true, slug: true, name: true } });

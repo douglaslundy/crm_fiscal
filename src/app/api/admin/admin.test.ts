@@ -10,7 +10,10 @@ import { MemoryStorage, PNG } from "../../../../tests/fake-storage";
 vi.mock("@/auth", async (orig) => ({ ...(await orig<typeof import("@/auth")>()), getSession: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
 const storage = new MemoryStorage();
-vi.mock("node:dns/promises", () => ({ resolveCname: vi.fn(async () => ["cname.vercel-dns.com"]) }));
+vi.mock("node:dns/promises", () => {
+  const resolveCname = vi.fn(async () => ["cname.vercel-dns.com"]);
+  return { resolveCname, Resolver: vi.fn(function (this: object) { Object.assign(this, { resolveCname }); }) };
+});
 vi.mock("@/integrations/storage", async (orig) => ({ ...(await orig<typeof import("@/integrations/storage")>()), getStorage: () => storage }));
 const auth = await import("@/auth");
 const nextHeaders = await import("next/headers");
@@ -525,6 +528,7 @@ describe("/api/admin: configuracoes, credenciais, equipe e dominio", () => {
     dns.resolveCname.mockResolvedValueOnce(["outro.example.com"]);
     expect(await (await send("domain/verify", "POST")).json()).toMatchObject({ host: `dom-${tag}.com.br`, verified: false });
     expect(await (await send("domain/verify", "POST")).json()).toMatchObject({ host: `dom-${tag}.com.br`, verified: true, cnameTarget: "cname.vercel-dns.com" });
+    expect(dns.Resolver).toHaveBeenCalledWith({ timeout: 3000, tries: 2 }); // DNS lento nao segura a requisicao
     expect(await (await send("domain", "PATCH", { host: `Nova-${tag}.com` })).json()).toMatchObject({ host: `nova-${tag}.com`, verified: false });
     await prisma.plan.update({ where: { id: planId }, data: { customDomain: false } });
     const r = await send("domain", "PATCH", { host: `outra-${tag}.com` });

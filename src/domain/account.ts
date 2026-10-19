@@ -39,10 +39,10 @@ export async function getOrder(storeId: string, customerId: string, id: string) 
 export const listAddresses = (storeId: string, customerId: string) =>
   dbForStore(storeId).address.findMany({ where: { customerId }, select: ADDRESS_SELECT, orderBy: { id: "asc" } });
 
+/** Atualiza e devolve na mesma instrucao (sem janela para apagar entre gravar e reler). */
 export async function updateAddress(storeId: string, customerId: string, id: string, data: AddressInput) {
-  const db = dbForStore(storeId);
-  if ((await db.address.updateMany({ where: { id, customerId }, data })).count === 0) return null;
-  return db.address.findFirst({ where: { id, customerId }, select: ADDRESS_SELECT });
+  const [a] = await dbForStore(storeId).address.updateManyAndReturn({ where: { id, customerId }, data, select: ADDRESS_SELECT });
+  return a ?? null;
 }
 
 // Pedidos guardam addressSnapshot (sem FK para Address): apagar o endereco nao afeta o historico.

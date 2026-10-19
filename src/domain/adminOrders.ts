@@ -48,7 +48,10 @@ export async function updateOrder(storeId: string, orderId: string, input: Order
   return db.order.findFirstOrThrow({ where: { id: orderId } });
 }
 
-const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.isNaN(Date.parse(s)));
+// dia que existe no calendario (2026-02-31 nao vira 03-03): ida e volta pela data UTC tem de dar o mesmo texto
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.isNaN(Date.parse(s)) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s));
+/** Busca literal: o Prisma nao escapa os curingas do LIKE (% _ e a barra de escape). */
+const literal = (q: string) => q.replace(/[\\%_]/g, "\\$&");
 const Query = z.object({
   page: z.coerce.number().int().min(1).max(MAX_PAGE).optional(),
   status: z.enum(["PENDING_PAYMENT", "PAID", "SHIPPED", "DELIVERED", "CANCELED"]).optional(),
@@ -74,9 +77,10 @@ export async function listOrders(storeId: string, query: OrderQuery) {
   if (query.from) and.push({ createdAt: { gte: dayStart(query.from) } });
   if (query.to) and.push({ createdAt: { lt: nextDay(query.to) } });
   if (query.q) {
+    const q = literal(query.q);
     and.push({ OR: [
-      { id: { startsWith: query.q, mode: "insensitive" } },
-      { customer: { OR: [{ name: { contains: query.q, mode: "insensitive" } }, { email: { contains: query.q, mode: "insensitive" } }] } },
+      { id: { startsWith: q, mode: "insensitive" } },
+      { customer: { OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }] } },
     ] });
   }
   const db = dbForStore(storeId);
@@ -108,8 +112,9 @@ export async function getOrderDetail(storeId: string, orderId: string) {
 
 export async function listCustomers(storeId: string, query: { page?: number; q?: string }) {
   const page = query.page ?? 1;
-  const where: Prisma.CustomerWhereInput = query.q
-    ? { OR: [{ name: { contains: query.q, mode: "insensitive" } }, { email: { contains: query.q, mode: "insensitive" } }] }
+  const q = query.q && literal(query.q);
+  const where: Prisma.CustomerWhereInput = q
+    ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }] }
     : {};
   const db = dbForStore(storeId);
   const [rows, total] = await Promise.all([

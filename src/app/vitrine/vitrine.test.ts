@@ -8,8 +8,8 @@ import { STORE_HOST_HEADER } from "@/lib/host";
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
 const nextHeaders = await import("next/headers");
 const { default: Home } = await import("./page");
-const { default: ProductPage } = await import("./p/[slug]/page");
-const { default: CategoryPage } = await import("./c/[slug]/page");
+const { default: ProductPage, generateMetadata: productMeta } = await import("./p/[slug]/page");
+const { default: CategoryPage, generateMetadata: categoryMeta } = await import("./c/[slug]/page");
 const { default: SearchPage } = await import("./buscar/page");
 
 let tag: string;
@@ -43,6 +43,21 @@ async function product(storeId: string, name: string, slug: string, stock = 3) {
 const html = async (el: Promise<ReactElement>) => renderToStaticMarkup(await el);
 const NOT_FOUND = { digest: expect.stringContaining("NEXT_HTTP_ERROR_FALLBACK;404") };
 const params = (slug: string) => ({ params: Promise.resolve({ slug }), searchParams: Promise.resolve({}) });
+
+describe("metadata", () => {
+  it("produto e categoria: titulo com a loja e descricao; inexistente, de outra loja ou loja fechada -> vazio", async () => {
+    await product(stores.a.id, "Camisa Linho", "camisa-linho");
+    await product(stores.b.id, "Alheio", "alheio");
+    await dbForStore(stores.a.id).category.create({ data: { storeId: stores.a.id, name: "Camisas", slug: "camisas" } });
+    asStore(stores.a.slug);
+    expect(await productMeta(params("camisa-linho"))).toEqual({ title: "Camisa Linho | Loja a", description: "Desc" });
+    expect(await categoryMeta(params("camisas"))).toEqual({ title: "Camisas | Loja a", description: "Camisas na Loja a" });
+    expect(await productMeta(params("alheio"))).toEqual({});
+    expect(await categoryMeta(params("nao-existe"))).toEqual({});
+    await prisma.store.update({ where: { id: stores.a.id }, data: { status: "SUSPENDED" } });
+    expect(await productMeta(params("camisa-linho"))).toEqual({});
+  });
+});
 
 describe("vitrine", () => {
   it("produto de outra loja pelo slug -> 404; da propria loja renderiza com JSON-LD escapado", async () => {

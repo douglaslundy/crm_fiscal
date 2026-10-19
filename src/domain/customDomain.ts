@@ -1,4 +1,4 @@
-import { resolveCname } from "node:dns/promises";
+import { Resolver } from "node:dns/promises";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { normalizeHost, platformDomain } from "@/lib/host";
@@ -35,6 +35,8 @@ export async function setDomain(storeId: string, raw: string) {
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Store" WHERE id = ${storeId} FOR UPDATE`;
       if (await tx.storeDomain.findFirst({ where: { storeId, host } })) return;
+      // pedido nao verificado de outra loja nao segura o host para sempre: expira em 7 dias (verificado nunca expira)
+      await tx.storeDomain.deleteMany({ where: { host, verified: false, storeId: { not: storeId }, createdAt: { lt: new Date(Date.now() - CLAIM_TTL_MS) } } });
       await tx.storeDomain.deleteMany({ where: { storeId } });
       await tx.storeDomain.create({ data: { storeId, host } });
     });
@@ -46,9 +48,12 @@ export async function setDomain(storeId: string, raw: string) {
 }
 
 export type CnameResolver = (host: string) => Promise<string[]>;
+const CLAIM_TTL_MS = 7 * 86_400_000;
+const resolveCname: CnameResolver = (host) => new Resolver({ timeout: 3000, tries: 2 }).resolveCname(host);
 
-/** Consulta o CNAME do host; aponta para o alvo da plataforma -> verified=true, senao false (inclusive erro de DNS). */
+/** Consulta o CNAME do host; aponta para o alvo da plataforma -> verified=true, senao false (inclusive erro de DNS). Plano precisa permitir. */
 export async function verifyDomain(storeId: string, resolve: CnameResolver = resolveCname) {
+  await assertCanUseCustomDomain(storeId);
   const d = await prisma.storeDomain.findFirst({ where: { storeId } });
   if (!d) throw new SettingsError(404, "DOMAIN_NOT_FOUND");
   const target = normalizeHost(cnameTarget());

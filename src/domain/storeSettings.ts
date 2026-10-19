@@ -41,17 +41,27 @@ export type CredentialField = (typeof CREDENTIAL_FIELDS)[number];
 export type CredentialStatus = Record<CredentialField, { configured: boolean; last4: string | null }>;
 const credKey = (f: CredentialField) => `cred.${f}`;
 
-async function readCredentials(storeId: string): Promise<Partial<Record<CredentialField, string>>> {
+/** `skipBad`: linha que nao decifra (chave trocada, dado corrompido) vira "nao configurado" com aviso, em vez de erro. */
+async function readCredentials(storeId: string, skipBad = false): Promise<Partial<Record<CredentialField, string>>> {
   const rows = await dbForStore(storeId).storeSetting.findMany({ where: { key: { in: CREDENTIAL_FIELDS.map(credKey) } } });
-  return Object.fromEntries(rows.map((r) => [r.key.slice("cred.".length), decrypt(r.value)]));
+  const out: Partial<Record<CredentialField, string>> = {};
+  for (const r of rows) {
+    try {
+      out[r.key.slice("cred.".length) as CredentialField] = decrypt(r.value);
+    } catch (e) {
+      if (!skipBad) throw e;
+      console.warn(`[credenciais] loja ${storeId}: ${r.key} nao decifra; tratada como nao configurada`);
+    }
+  }
+  return out;
 }
 
-/** Uso interno do servidor (pagamento/frete): valores decifrados. Nunca devolver em rota. */
-export const getStoreCredentials = readCredentials;
+/** Uso interno do servidor (pagamento/frete): valores decifrados (linha ilegivel = erro). Nunca devolver em rota. */
+export const getStoreCredentials = (storeId: string) => readCredentials(storeId);
 
 /** Unica visao de credenciais que sai para o cliente: configurado e os 4 ultimos (so se o segredo tiver 8+ caracteres). */
 export async function getCredentialStatus(storeId: string): Promise<CredentialStatus> {
-  const plain = await readCredentials(storeId);
+  const plain = await readCredentials(storeId, true);
   return Object.fromEntries(CREDENTIAL_FIELDS.map((f) => {
     const v = plain[f];
     return [f, { configured: v !== undefined, last4: v !== undefined && v.length >= 8 ? v.slice(-4) : null }];

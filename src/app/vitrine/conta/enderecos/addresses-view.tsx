@@ -10,6 +10,7 @@ export function AddressesView({ initial }: { initial: Address[] }) {
   const [error, setError] = useState<string | null>(null);
 
   async function remove(id: string) {
+    if (!confirm("Apagar este endereço?")) return;
     setError(null);
     const r = await fetch(`/api/checkout/address/${id}`, { method: "DELETE" }).catch(() => null);
     if (r?.ok) setList((l) => l.filter((a) => a.id !== id));

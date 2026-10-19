@@ -10,7 +10,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   if (!isStoreOpen(store)) return <Unavailable />;
   const sp = toSearchParams(await searchParams);
   const f = parseCatalogFilters(sp);
-  const [{ items, total }, settings, options] = await Promise.all([listProducts(store.id, f), getSettings(store.id), getFilterOptions(store.id)]);
+  const [{ items, total, page }, settings, options] = await Promise.all([listProducts(store.id, f), getSettings(store.id), getFilterOptions(store.id)]);
   sp.delete("page");
   return (
     <main style={{ padding: "16px 0" }}>
@@ -18,7 +18,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       <Filters action="/buscar" f={f} options={options} />
       <p>{total} {total === 1 ? "produto" : "produtos"}</p>
       <ProductGrid items={items} pixPercent={settings.pixDiscountPercent} />
-      <Pagination basePath="/buscar" sp={sp} page={f.page} total={total} pageSize={PAGE_SIZE} />
+      <Pagination basePath="/buscar" sp={sp} page={page} total={total} pageSize={PAGE_SIZE} />
     </main>
   );
 }

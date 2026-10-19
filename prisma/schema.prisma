@@ -98,11 +98,12 @@ model StoreMember {
 }
 
 model StoreDomain {
-  id       String  @id @default(cuid())
-  storeId  String
-  host     String  @unique
-  verified Boolean @default(false)
-  store    Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  storeId   String
+  host      String   @unique
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([storeId])
 }

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { dbForStore } from "@/lib/db-store";
-import { PAGE_SIZE, getProductBySlug, isStoreOpen, jsonLdScript, listProducts, parseCatalogFilters, productJsonLd } from "./catalog";
+import { MAX_PAGE, PAGE_SIZE, getProductBySlug, isStoreOpen, jsonLdScript, listProducts, parseCatalogFilters, productJsonLd } from "./catalog";
 
 const sp = (q: string) => parseCatalogFilters(new URLSearchParams(q));
 
@@ -15,6 +15,7 @@ describe("parseCatalogFilters", () => {
     expect(sp("page=-3").page).toBe(1);
     expect(sp("page=2.5").page).toBe(1);
     expect(sp("page=3").page).toBe(3);
+    expect(sp("page=999999999").page).toBe(MAX_PAGE); // numero absurdo e limitado
     expect(sp("min=-5").minCents).toBeUndefined();
     expect(sp("min=abc&max=1e3").minCents).toBeUndefined();
     expect(sp("max=1e3").maxCents).toBeUndefined();
@@ -109,8 +110,8 @@ describe("listProducts (vitrine)", () => {
     await product(a, "SemCategoria", [{}]);
     expect((await names(a, "category=roupas")).sort()).toEqual(["Raiz", "Sub", "SubSub"]);
     expect((await names(a, "category=camisetas")).sort()).toEqual(["Sub", "SubSub"]);
-    expect(await listProducts(a, sp("category=nao-existe"))).toEqual({ items: [], total: 0 });
-    expect(await listProducts(a, sp("category=sapatos"))).toEqual({ items: [], total: 0 });
+    expect(await listProducts(a, sp("category=nao-existe"))).toEqual({ items: [], total: 0, page: 1 });
+    expect(await listProducts(a, sp("category=sapatos"))).toEqual({ items: [], total: 0, page: 1 });
   });
   it("tamanho/cor sem diferenciar maiusculas, so em variacao ativa; faixa de preco; busca no nome", async () => {
     await product(a, "Camisa Azul", [{ color: "Azul", size: "M", priceCents: 5000 }, { color: "Preto", size: "GG", priceCents: 20000, active: false }]);
@@ -136,6 +137,11 @@ describe("listProducts (vitrine)", () => {
     const p2 = await listProducts(a, sp("page=2"));
     expect(p2.items.map((i) => i.name)).toEqual(["P1", "P0"]);
     expect(p2.total).toBe(PAGE_SIZE + 2);
+    expect(p2.page).toBe(2);
+    const past = await listProducts(a, sp("page=50")); // alem do fim: mostra a ultima pagina
+    expect(past).toMatchObject({ page: 2, total: PAGE_SIZE + 2 });
+    expect(past.items.map((i) => i.name)).toEqual(["P1", "P0"]);
+    expect(await listProducts(a, sp("page=3&q=nada-casa"))).toMatchObject({ page: 1, total: 0, items: [] });
   });
 });
 

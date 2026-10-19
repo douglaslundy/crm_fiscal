@@ -59,7 +59,9 @@ describe("pedidos da conta", () => {
 describe("enderecos da conta", () => {
   it("edita e apaga o proprio; lista so os dele", async () => {
     const a = await mkAddr(A, c1);
-    expect(await updateAddress(A, c1, a.id, input)).toMatchObject({ id: a.id, street: "Nova", state: "RJ" });
+    const up = await updateAddress(A, c1, a.id, input);
+    expect(up).toMatchObject({ id: a.id, street: "Nova", state: "RJ" });
+    expect(Object.keys(up!).sort()).toEqual(["cep", "city", "complement", "district", "id", "number", "state", "street"]); // so o SELECT publico
     expect(await listAddresses(A, c2)).toEqual([]);
     expect(await deleteAddress(A, c1, a.id)).toBe(true);
     expect(await listAddresses(A, c1)).toEqual([]);

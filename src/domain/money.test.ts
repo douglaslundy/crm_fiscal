@@ -17,10 +17,14 @@ describe("installments", () => {
     expect(installments(18000)).toEqual({ count: 2, valueCents: 9000 });
     expect(installments(90000)).toEqual({ count: 3, valueCents: 30000 });
   });
-  it("valor nao exato arredonda a parcela para cima; nunca abaixo do minimo", () => {
-    expect(installments(27001)).toEqual({ count: 3, valueCents: 9001 });
-    expect(installments(26999)).toEqual({ count: 2, valueCents: 13500 });
-    expect(installments(100000, 9000, 3)).toEqual({ count: 3, valueCents: 33334 });
+  it("valor nao exato arredonda a parcela para baixo (soma nunca passa do preco); nunca abaixo do minimo", () => {
+    expect(installments(27001)).toEqual({ count: 3, valueCents: 9000 });
+    expect(installments(26999)).toEqual({ count: 2, valueCents: 13499 });
+    expect(installments(100000, 9000, 3)).toEqual({ count: 3, valueCents: 33333 });
+    for (const p of [27001, 26999, 100000, 99999, 12345678]) {
+      const { count, valueCents } = installments(p);
+      expect(count * valueCents, String(p)).toBeLessThanOrEqual(p);
+    }
   });
   it("limites: valor baixo/zero -> 1x; parametros customizados", () => {
     expect(installments(0)).toEqual({ count: 1, valueCents: 0 });
