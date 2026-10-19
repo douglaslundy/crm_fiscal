@@ -23,7 +23,7 @@ export default async function OrderPage({ params }: Props) {
   const db = dbForStore(store.id);
   const order = await db.order.findFirst({
     where: { id, customerId },
-    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, couponCode: true, discountCents: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true },
+    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, couponCode: true, discountCents: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true, boletoUrl: true, boletoBarcode: true, boletoExpiresAt: true },
   });
   if (!order) notFound();
   const items = await db.orderItem.findMany({ where: { orderId: order.id }, select: { id: true, productName: true, color: true, size: true, quantity: true, unitPriceCents: true } });
@@ -50,6 +50,7 @@ export default async function OrderPage({ params }: Props) {
         totalCents={order.totalCents}
         pixCents={pixCents}
         initialPix={order.pixQrCode && order.pixExpiresAt ? { qrCode: order.pixQrCode, qrCodeBase64: order.pixQrBase64, expiresAt: order.pixExpiresAt.toISOString() } : null}
+        initialBoleto={order.boletoUrl && order.boletoExpiresAt ? { url: order.boletoUrl, barcode: order.boletoBarcode ?? "", expiresAt: order.boletoExpiresAt.toISOString() } : null}
       />
       <Link href="/">Continuar comprando</Link>
     </main>

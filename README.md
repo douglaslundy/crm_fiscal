@@ -73,3 +73,6 @@ Fora da Vercel (servidor próprio, Docker etc.), o next-auth precisa de `AUTH_TR
 - Fuso fixo em UTC-3 (Brasil sem horário de verão desde 2019); revisar se o DST voltar.
 - Exportação CSV limitada a 20.000 pedidos (mais recentes); as métricas leem o período inteiro em lotes.
 - Cupons: o limite de uma vez por cliente é conferido sem trava; dois pedidos simultâneos do mesmo cliente podem usar o mesmo cupom duas vezes. O limite total de usos é atômico.
+- Boleto (Mercado Pago `bolbradesco`): vence em 3 dias; o pedido fica reservado por mais 5 dias corridos (compensação bancária), quando o cron confere e cancela se não pago. Nesse período nenhum Pix/cartão novo é aceito no pedido. O formato da requisição não foi exercitado contra a API real. Cliente com boleto vigente não pode gerar Pix nem cartão no mesmo pedido.
+- Fora do v1 e ainda não feitos: nota fiscal (exige provedor fiscal), etiqueta de envio (exige Melhor Envio real), comissão por venda (exige OAuth do Mercado Pago) e app mobile.
+- Contas da plataforma não têm verificação de e-mail (cadastro, convite de equipe): quem convida recebe o link e pode criar a conta do convidado com senha própria; a mesma limitação já existe no cadastro aberto. Verificar e-mail exige provedor de envio.

@@ -96,6 +96,19 @@ describe("POST /api/checkout/pay", () => {
     expect((await order(o.id)).status).toBe("PENDING_PAYMENT");
   });
 
+  it("boleto -> link e linha digitavel; depois Pix/cartao -> 409 BOLETO_EM_ANDAMENTO", async () => {
+    const o = await mkOrder(A.id, custA);
+    login(custA, A.id);
+    const res = await postPay({ orderId: o.id, method: "boleto" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "PENDING_PAYMENT", boleto: { amountCents: 10001, url: expect.stringContaining("https://") } });
+    for (const body of [{ orderId: o.id, method: "pix" }, { orderId: o.id, method: "card", card: card("approved") }]) {
+      const r = await postPay(body);
+      expect([r.status, (await r.json()).error]).toEqual([409, "BOLETO_EM_ANDAMENTO"]);
+    }
+    expect(await order(o.id)).toMatchObject({ status: "PENDING_PAYMENT", paymentMethod: "boleto", boletoUrl: expect.stringContaining("https://") });
+  });
+
   it("Pix -> QR e copia-e-cola; pedido de outro cliente/loja -> 404; pedido pago -> 409; corpo invalido -> 400", async () => {
     const o = await mkOrder(A.id, custA);
     login(custA, A.id);
@@ -166,7 +179,7 @@ describe("GET /api/checkout/order/[id]/status", () => {
     const o = await mkOrder(A.id, custA);
     const get = (id: string) => status.GET(req(A, `/api/checkout/order/${id}/status`, "GET"), { params: Promise.resolve({ id }) });
     login(custA, A.id);
-    expect(await (await get(o.id)).json()).toEqual({ status: "PENDING_PAYMENT", pixQrCode: null, pixQrBase64: null, pixExpiresAt: null });
+    expect(await (await get(o.id)).json()).toEqual({ status: "PENDING_PAYMENT", pixQrCode: null, pixQrBase64: null, pixExpiresAt: null, boletoUrl: null, boletoBarcode: null, boletoExpiresAt: null });
     const other = await mkOrder(A.id, await mkCustomer(A.id, "x"));
     expect((await get(other.id)).status).toBe(404);
     login(null);

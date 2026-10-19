@@ -55,6 +55,26 @@ describe("MercadoPagoGateway", () => {
     expect(s.body.token).toBeUndefined();
   });
 
+  it("payBoleto: bolbradesco com nome e endereco do pagador, vence em 3 dias, devolve URL e linha digitavel", async () => {
+    const boletoPayer = { ...payer, firstName: "Ana", lastName: "Souza", address: { zip: "01001000", street: "Praça da Sé", number: "100", district: "Sé", city: "São Paulo", state: "SP" } };
+    const { gw, sent } = setup({ body: { id: 11, status: "pending", transaction_details: { external_resource_url: "https://www.mercadopago.com.br/payments/11/ticket" }, barcode: { content: "34191790010104351004791020150008" } } });
+    const r = await gw.payBoleto({ orderId: "o1", amountCents: 10001, payer: boletoPayer }, "order:o1:boleto");
+    expect(r).toEqual({ id: "11", status: "pending", url: "https://www.mercadopago.com.br/payments/11/ticket", barcode: "34191790010104351004791020150008", expiresAt: new Date("2026-10-21T12:00:00.000Z") });
+    const s = sent();
+    expect(s.headers["X-Idempotency-Key"]).toBe("order:o1:boleto");
+    expect(s.body).toMatchObject({
+      transaction_amount: 100.01, payment_method_id: "bolbradesco", external_reference: "o1", date_of_expiration: "2026-10-21T12:00:00.000Z",
+      payer: { email: "cli@t.local", first_name: "Ana", last_name: "Souza", identification: { type: "CPF", number: "52998224725" },
+        address: { zip_code: "01001000", street_name: "Praça da Sé", street_number: "100", neighborhood: "Sé", city: "São Paulo", federal_unit: "SP" } },
+    });
+    expect(s.body.token).toBeUndefined();
+  });
+  it("payBoleto: resposta sem URL https do boleto -> erro do gateway", async () => {
+    const boletoPayer = { ...payer, firstName: "A", lastName: "B", address: { zip: "1", street: "r", number: "1", district: "d", city: "c", state: "SP" } };
+    const { gw } = setup({ body: { id: 11, status: "pending", transaction_details: { external_resource_url: "http://inseguro" } } });
+    await expect(gw.payBoleto({ orderId: "o1", amountCents: 1, payer: boletoPayer }, "k")).rejects.toBeInstanceOf(PaymentGatewayError);
+  });
+
   it("getPayment: GET /v1/payments/{id}; mapeia status, valor em centavos, tipo e referencia", async () => {
     const { gw, sent } = setup({ body: { id: 7, status: "in_process", external_reference: "o1", transaction_amount: 19.9, payment_type_id: "bank_transfer" } });
     expect(await gw.getPayment("7")).toEqual({ id: "7", status: "pending", externalReference: "o1", amountCents: 1990, paymentTypeId: "bank_transfer" });
