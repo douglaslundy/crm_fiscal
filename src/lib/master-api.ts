@@ -8,6 +8,7 @@ import {
   CategoryInUseError, CategoryNotFoundError, CategoryValidationError, MaxDepthError, ParentCycleError, ParentNotFoundError,
 } from "@/domain/categories";
 import { PlanLimitError, StoreNotFoundError, planLimitToHttp } from "@/domain/entitlements";
+import { CollectionError } from "@/domain/collections";
 import { CouponError } from "@/domain/coupons";
 import { AdminOrderError } from "@/domain/adminOrders";
 import { OrderNotFoundError } from "@/domain/orders";
@@ -76,6 +77,7 @@ export function domainError(e: unknown): NextResponse {
   if (e instanceof MaxDepthError) return err(400, "MAX_DEPTH");
   if (e instanceof CategoryValidationError) return err(400, "CATEGORY_INVALID");
   if (e instanceof AdminOrderError) return err(e.status, e.code, { message: e.message });
+  if (e instanceof CollectionError) return err(e.status, e.code);
   if (e instanceof CouponError) return err(e.status, e.code, e.extra);
   if (e instanceof OrderNotFoundError) return err(404, "ORDER_NOT_FOUND");
   throw e;

@@ -81,6 +81,8 @@ model Store {
   domains           StoreDomain[]
   invites           StoreInvite[]
   coupons           Coupon[]
+  collections       Collection[]
+  subscribers       Subscriber[]
   subscription      Subscription?
   customers         Customer[]
   addresses         Address[]
@@ -195,6 +197,44 @@ model Coupon {
   @@unique([storeId, id])
 }
 
+/// Agrupamento tematico de produtos (ex.: "Verao 2027"), alem das categorias.
+model Collection {
+  id        String              @id @default(cuid())
+  storeId   String
+  slug      String
+  name      String
+  active    Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  store     Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products  ProductCollection[]
+
+  @@unique([storeId, slug])
+  @@unique([storeId, id])
+}
+
+model ProductCollection {
+  storeId      String
+  collectionId String
+  productId    String
+  collection   Collection @relation(fields: [storeId, collectionId], references: [storeId, id], onDelete: Cascade)
+  product      Product    @relation(fields: [storeId, productId], references: [storeId, id], onDelete: Cascade)
+
+  @@id([collectionId, productId])
+  @@index([productId])
+}
+
+/// E-mail captado na vitrine, com consentimento explicito.
+model Subscriber {
+  id        String   @id @default(cuid())
+  storeId   String
+  email     String
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, email])
+  @@unique([storeId, id])
+}
+
 model Category {
   id       String     @id @default(cuid())
   storeId  String
@@ -227,6 +267,7 @@ model Product {
   store       Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   category    Category?      @relation(fields: [storeId, categoryId], references: [storeId, id], onDelete: NoAction)
   images      ProductImage[]
+  collections ProductCollection[]
   variants    Variant[]
 
   @@unique([storeId, slug])

@@ -33,6 +33,12 @@ const credentials = await import("./credentials/route");
 const team = await import("./team/route");
 const teamId = await import("./team/[id]/route");
 const coupons = await import("./coupons/route");
+const subscribers = await import("./subscribers/route");
+const subscriberId = await import("./subscribers/[id]/route");
+const subscribersExport = await import("./subscribers/export/route");
+const collections = await import("./collections/route");
+const collectionId = await import("./collections/[id]/route");
+const collectionProducts = await import("./collections/[id]/products/route");
 const couponId = await import("./coupons/[id]/route");
 const teamInvite = await import("./team/invites/[id]/route");
 const exportCsv = await import("./export/route");
@@ -60,6 +66,8 @@ let staffAId: string;
 let inviteEmail: string;
 let inviteIdA: string;
 let couponIdA: string;
+let collectionIdA: string;
+let subscriberIdA: string;
 let ownerB: Session;
 let master: Session;
 let customer: Session;
@@ -87,6 +95,8 @@ beforeEach(async () => {
   staffAId = sa;
   inviteIdA = (await prisma.storeInvite.create({ data: { storeId: storeA, email: `pend-${tag}@t.local`, tokenHash: `h-${tag}`, expiresAt: new Date(Date.now() + 86_400_000) } })).id;
   couponIdA = (await prisma.coupon.create({ data: { storeId: storeA, code: "TABELA", kind: "PERCENT", value: 5 } })).id;
+  collectionIdA = (await prisma.collection.create({ data: { storeId: storeA, slug: "tabela", name: "Tabela" } })).id;
+  subscriberIdA = (await prisma.subscriber.create({ data: { storeId: storeA, email: `s-${tag}@t.local` } })).id;
   await acc("inv");
   inviteEmail = `inv-${tag}@t.local`;
   await prisma.storeDomain.create({ data: { storeId: storeA, host: `dom-${tag}.com.br` } });
@@ -158,6 +168,15 @@ const cases: Case[] = [
   { route: "team", method: "GET", handler: team.GET as Handler, ok: 200, ownerOnly: true },
   { route: "team", method: "POST", handler: team.POST as Handler, ok: 201, ownerOnly: true, body: () => ({ email: inviteEmail }) },
   { route: "team/invites/[id]", method: "DELETE", handler: teamInvite.DELETE as Handler, id: () => inviteIdA, ok: 200, ownerOnly: true },
+  { route: "collections", method: "GET", handler: collections.GET as Handler, ok: 200 },
+  { route: "collections", method: "POST", handler: collections.POST as Handler, ok: 201, body: () => ({ name: "Verão" }) },
+  { route: "collections/[id]", method: "PATCH", handler: collectionId.PATCH as Handler, id: () => collectionIdA, ok: 200, body: () => ({ active: false }) },
+  { route: "collections/[id]", method: "DELETE", handler: collectionId.DELETE as Handler, id: () => collectionIdA, ok: 200 },
+  { route: "collections/[id]/products", method: "GET", handler: collectionProducts.GET as Handler, id: () => collectionIdA, ok: 200 },
+  { route: "collections/[id]/products", method: "PUT", handler: collectionProducts.PUT as Handler, id: () => collectionIdA, ok: 200, body: () => ({ productIds: [] }) },
+  { route: "subscribers", method: "GET", handler: subscribers.GET as Handler, ok: 200 },
+  { route: "subscribers/export", method: "GET", handler: subscribersExport.GET as Handler, ok: 200 },
+  { route: "subscribers/[id]", method: "DELETE", handler: subscriberId.DELETE as Handler, id: () => subscriberIdA, ok: 200 },
   { route: "coupons", method: "GET", handler: coupons.GET as Handler, ok: 200 },
   { route: "coupons", method: "POST", handler: coupons.POST as Handler, ok: 201, body: () => ({ code: "NOVO10", kind: "PERCENT", value: 10 }) },
   { route: "coupons/[id]", method: "PATCH", handler: couponId.PATCH as Handler, id: () => couponIdA, ok: 200, body: () => ({ active: false }) },

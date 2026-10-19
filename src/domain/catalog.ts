@@ -9,6 +9,7 @@ const Q_MAX = 80;
 
 export type CatalogFilters = {
   category?: string;
+  collection?: string;
   sizes: string[];
   colors: string[];
   minCents?: number;
@@ -70,6 +71,11 @@ export async function listProducts(storeId: string, f: CatalogFilters): Promise<
     const ids = await categoryIds(storeId, f.category);
     if (!ids) return { items: [], total: 0, page: 1 };
     and.push({ categoryId: { in: ids } });
+  }
+  if (f.collection) {
+    const col = await dbForStore(storeId).collection.findFirst({ where: { slug: f.collection, active: true }, select: { id: true } });
+    if (!col) return { items: [], total: 0, page: 1 };
+    and.push({ collections: { some: { collectionId: col.id } } });
   }
   if (f.q) and.push({ name: { contains: f.q, mode: "insensitive" } });
   const variantMatch: Prisma.VariantWhereInput = {
