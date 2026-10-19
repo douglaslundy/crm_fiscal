@@ -191,7 +191,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
         <p style={{ fontSize: 18 }}>Total: <strong>{formatBRL(serverTotal ?? priced.subtotalCents - discount + (shipping?.priceCents ?? 0))}</strong></p>
         {error && <p role="alert">{error}</p>}
         <button type="button" onClick={placeOrder} disabled={busy || !shipping || !addressId || priced.lines.length === 0}
-          style={{ padding: "10px 16px", background: "#111", color: "#fff", border: 0 }}>
+          style={{ padding: "10px 16px", background: "var(--primary, #111)", color: "var(--on-primary, #fff)", border: 0 }}>
           {busy ? "Enviando…" : "Fazer pedido"}
         </button>
       </section>

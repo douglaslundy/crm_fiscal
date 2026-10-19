@@ -91,7 +91,7 @@ export function CartView() {
       <p style={{ fontSize: 18 }}>Subtotal: <strong>{formatBRL(view.subtotalCents)}</strong></p>
       {empty
         ? <button type="button" disabled>Finalizar compra</button>
-        : <Link href="/checkout" style={{ display: "inline-block", padding: "10px 16px", background: "#111", color: "#fff", textDecoration: "none" }}>Finalizar compra</Link>}
+        : <Link href="/checkout" style={{ display: "inline-block", padding: "10px 16px", background: "var(--primary, #111)", color: "var(--on-primary, #fff)", textDecoration: "none" }}>Finalizar compra</Link>}
     </div>
   );
 }

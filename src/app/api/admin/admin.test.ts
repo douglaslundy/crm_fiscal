@@ -33,6 +33,7 @@ const credentials = await import("./credentials/route");
 const team = await import("./team/route");
 const teamId = await import("./team/[id]/route");
 const coupons = await import("./coupons/route");
+const theme = await import("./theme/route");
 const subscribers = await import("./subscribers/route");
 const subscriberId = await import("./subscribers/[id]/route");
 const subscribersExport = await import("./subscribers/export/route");
@@ -177,6 +178,8 @@ const cases: Case[] = [
   { route: "subscribers", method: "GET", handler: subscribers.GET as Handler, ok: 200 },
   { route: "subscribers/export", method: "GET", handler: subscribersExport.GET as Handler, ok: 200 },
   { route: "subscribers/[id]", method: "DELETE", handler: subscriberId.DELETE as Handler, id: () => subscriberIdA, ok: 200 },
+  { route: "theme", method: "GET", handler: theme.GET as Handler, ok: 200 },
+  { route: "theme", method: "PATCH", handler: theme.PATCH as Handler, ok: 200, body: () => ({ primaryColor: "#336699" }) },
   { route: "coupons", method: "GET", handler: coupons.GET as Handler, ok: 200 },
   { route: "coupons", method: "POST", handler: coupons.POST as Handler, ok: 201, body: () => ({ code: "NOVO10", kind: "PERCENT", value: 10 }) },
   { route: "coupons/[id]", method: "PATCH", handler: couponId.PATCH as Handler, id: () => couponIdA, ok: 200, body: () => ({ active: false }) },
