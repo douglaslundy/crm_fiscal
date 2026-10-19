@@ -24,6 +24,14 @@ describe("middleware", () => {
     expect(new URL(h.get("x-middleware-rewrite")!).search).toBe("?size=M");
     expect(h.get("x-middleware-request-x-store-host")).toBe("demo.plataforma.test");
   });
+  it("loja: /checkout e reescrito para /vitrine/checkout (com query); /checkout/x nao", () => {
+    process.env.PLATFORM_DOMAIN = "plataforma.test";
+    const h = call("http://demo.plataforma.test/checkout?pedido=abc", "demo.plataforma.test").headers;
+    expect(new URL(h.get("x-middleware-rewrite")!).pathname).toBe("/vitrine/checkout");
+    expect(new URL(h.get("x-middleware-rewrite")!).search).toBe("?pedido=abc");
+    expect(h.get("x-middleware-request-x-store-host")).toBe("demo.plataforma.test");
+    expect(call("http://demo.plataforma.test/checkout/x", "demo.plataforma.test").headers.get("x-middleware-rewrite")).toBeNull();
+  });
   it("loja: /admin nao e reescrito; plataforma nunca e reescrita", () => {
     process.env.PLATFORM_DOMAIN = "plataforma.test";
     expect(call("http://demo.plataforma.test/admin", "demo.plataforma.test").headers.get("x-middleware-rewrite")).toBeNull();

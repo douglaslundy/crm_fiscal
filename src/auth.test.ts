@@ -72,6 +72,7 @@ describe("provedor customer", () => {
     getSession.mockResolvedValue(s);
     await expect(requireCustomer(A.id)).resolves.toBe(s);
     await expectRedirect(requireCustomer(B.id), "/loja-entrar");
+    await expectRedirect(requireCustomer(B.id, "/checkout"), "/loja-entrar?next=%2Fcheckout");
     await expectRedirect(requireMaster(), "/entrar");
     await expectRedirect(requireStoreMember(A.id), "/entrar");
   });

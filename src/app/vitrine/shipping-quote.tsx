@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatBRL } from "@/domain/money";
 
 type Option = { service: string; priceCents: number; days: number };
-const ERRORS: Record<string, string> = {
+export const SHIPPING_ERRORS: Record<string, string> = {
   CEP_INVALIDO: "CEP inválido.",
   FRETE_INDISPONIVEL: "Frete indisponível no momento. Tente novamente.",
   FRETE_NAO_CONFIGURADO: "Esta loja ainda não configurou o frete.",
@@ -31,7 +31,7 @@ export function ShippingQuote({ lines }: { lines: { variantId: string; qty: numb
       const data = await r.json().catch(() => null);
       if (mine.signal.aborted) return;
       if (r.ok) setOptions(data.options);
-      else setError(ERRORS[data?.error] ?? "Não foi possível calcular o frete.");
+      else setError(SHIPPING_ERRORS[data?.error] ?? "Não foi possível calcular o frete.");
     } catch {
       if (!mine.signal.aborted) setError("Não foi possível calcular o frete.");
     } finally {

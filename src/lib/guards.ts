@@ -34,12 +34,12 @@ export async function requireStoreMember(storeId: string, role?: MemberRole): Pr
   redirect("/entrar");
 }
 
-/** Cliente desta loja (token de outra loja ou de conta da plataforma nunca passa); loja SUSPENDED/CANCELED barra. */
-export async function requireCustomer(storeId: string): Promise<Session> {
+/** Cliente desta loja (token de outra loja ou de conta da plataforma nunca passa); loja SUSPENDED/CANCELED barra. `next` = volta pos-login. */
+export async function requireCustomer(storeId: string, next?: string): Promise<Session> {
   const s = await getSession();
   if (s?.user.kind === "customer" && s.user.storeId === storeId) {
     const store = await prisma.store.findUnique({ where: { id: storeId }, select: { status: true } });
     if (store && !isStoreBlocked(store) && await dbForStore(storeId).customer.findUnique({ where: { id: s.user.id }, select: { id: true } })) return s;
   }
-  redirect("/loja-entrar");
+  redirect(next ? `/loja-entrar?next=${encodeURIComponent(next)}` : "/loja-entrar");
 }
