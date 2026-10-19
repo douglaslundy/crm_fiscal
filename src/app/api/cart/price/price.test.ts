@@ -96,6 +96,17 @@ describe("POST /api/cart/price", () => {
       expect((await call(A, b)).status, JSON.stringify(b).slice(0, 40)).toBe(400);
     }
   });
+  it("corpo acima de 16 KB -> 413", async () => {
+    expect((await call(A, JSON.stringify({ lines: [], pad: "x".repeat(17_000) }))).status).toBe(413);
+  });
+  it("429 apos 60 consultas por minuto do mesmo IP na loja; outra loja segue", async () => {
+    const ip = { "x-forwarded-for": `10.1.0.${tag}` };
+    for (let i = 0; i < 60; i++) expect((await call(A, { lines: [] }, ip)).status).toBe(200);
+    const res = await call(A, { lines: [] }, ip);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBeTruthy();
+    expect((await call(B, { lines: [] }, ip)).status).toBe(200);
+  });
   it("carrinho vazio -> 200 vazio", async () => {
     expect(await (await call(A, { lines: [] })).json()).toEqual({ lines: [], subtotalCents: 0, issues: [] });
   });

@@ -22,6 +22,7 @@ const Body = z.object({
   addressId: z.string().min(1).max(64),
   shippingService: z.string().min(1).max(64),
   expectedTotalCents: z.number().int().min(0).optional(), // so comparado com o total do servidor
+  idempotencyKey: z.uuid().optional(), // uma por tentativa de checkout: reenvio devolve o mesmo pedido
 });
 
 /** Cria o pedido do cliente logado na loja do host. Valores sempre do banco e da cotacao refeita no servidor. */

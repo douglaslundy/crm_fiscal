@@ -74,10 +74,10 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-type O = { provider?: ShippingProvider; shippingService?: string; storeId?: string; c?: typeof cust; beforeWrite?: () => Promise<void>; expectedTotalCents?: number };
+type O = { provider?: ShippingProvider; shippingService?: string; storeId?: string; c?: typeof cust; beforeWrite?: () => Promise<void>; expectedTotalCents?: number; idempotencyKey?: string };
 const order = (lines: { variantId: string; qty: number }[], o: O = {}) =>
   createOrder(
-    { storeId: o.storeId ?? S, ...(o.c ?? cust), lines, shippingService: o.shippingService ?? "SEDEX", expectedTotalCents: o.expectedTotalCents },
+    { storeId: o.storeId ?? S, ...(o.c ?? cust), lines, shippingService: o.shippingService ?? "SEDEX", expectedTotalCents: o.expectedTotalCents, idempotencyKey: o.idempotencyKey },
     { provider: o.provider ?? fakeProvider(), _testBeforeWrite: o.beforeWrite },
   );
 
@@ -99,6 +99,24 @@ describe("createOrder", () => {
     expect(await stockOf(a)).toBe(3);
     expect(await stockOf(b)).toBe(2);
     expect(prov.calls[0]).toMatchObject({ fromCep: "37175000", toCep: "01001000" });
+  });
+
+  it("idempotencyKey: repetir (em serie ou em paralelo) devolve o mesmo pedido e baixa o estoque uma vez", async () => {
+    const v = await mkVariant(S, "idem", { stock: 1 }); // ultima unidade: o envio duplicado nao vira SEM_ESTOQUE
+    const key = crypto.randomUUID();
+    const gate = barrier(2);
+    const [o1, o2] = await Promise.all([0, 1].map(() => order([{ variantId: v, qty: 1 }], { idempotencyKey: key, beforeWrite: gate })));
+    expect(o2.id).toBe(o1.id);
+    const o3 = await order([{ variantId: v, qty: 1 }], { idempotencyKey: key });
+    expect(o3).toMatchObject({ id: o1.id, totalCents: o1.totalCents });
+    expect(o3.items).toHaveLength(1);
+    expect(await stockOf(v)).toBe(0);
+    expect(await prisma.order.count({ where: { storeId: S } })).toBe(1);
+    // mesma chave de outro cliente nao devolve o pedido alheio
+    const other = await mkCustomer(S, "outro");
+    const w = await mkVariant(S, "idem2", { stock: 3 });
+    await expect(order([{ variantId: w, qty: 1 }], { c: other, idempotencyKey: key })).rejects.toThrow();
+    expect(await stockOf(w)).toBe(3);
   });
 
   it("ultima unidade: N pedidos em paralelo -> exatamente 1 pedido, demais OutOfStockError, estoque final 0", async () => {

@@ -6,6 +6,7 @@ import { STORE_HOST_HEADER } from "@/lib/host";
 vi.mock("@/auth", async (orig) => ({ ...(await orig<typeof import("@/auth")>()), getSession: vi.fn() }));
 const getSession = vi.mocked((await import("@/auth")).getSession);
 const route = await import("./[id]/route");
+const listRoute = await import("./route");
 
 let tag: string;
 const stores: string[] = [];
@@ -49,6 +50,22 @@ afterEach(async () => {
 afterAll(async () => {
   await prisma.plan.deleteMany({ where: { name: "Teste-AddrId" } });
   await prisma.$disconnect();
+});
+
+describe("POST /api/checkout/address", () => {
+  it("limite de 20 enderecos por cliente -> 422; abaixo do limite cria", async () => {
+    login(c1, A.id);
+    const post = () => listRoute.POST(new Request("http://localhost/api/checkout/address", {
+      method: "POST", headers: { "content-type": "application/json", origin: "http://localhost", [STORE_HOST_HEADER]: `${A.slug}.localhost` }, body: JSON.stringify(body),
+    }));
+    const row = { storeId: A.id, customerId: c1, cep: "01001000", street: "Rua", number: "1", district: "Centro", city: "SP", state: "SP" };
+    await prisma.address.createMany({ data: Array.from({ length: 18 }, () => row) }); // 19 com o do beforeEach
+    expect((await post()).status).toBe(201);
+    const res = await post();
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ error: "LIMITE_DE_ENDERECOS" });
+    expect(await prisma.address.count({ where: { customerId: c1 } })).toBe(20);
+  });
 });
 
 describe("PATCH/DELETE /api/checkout/address/[id]", () => {

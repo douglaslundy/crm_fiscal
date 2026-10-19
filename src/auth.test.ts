@@ -6,7 +6,7 @@ import { dbForStore } from "@/lib/db-store";
 
 vi.mock("@/auth", async (orig) => ({ ...(await orig<typeof import("@/auth")>()), getSession: vi.fn() }));
 const auth = await import("@/auth");
-const { authorizeAccount, authorizeCustomer, authOptions } = auth;
+const { authorizeAccount, authorizeCustomer, authOptions, authSecret } = auth;
 const { requireCustomer, requireMaster, requireStoreMember } = await import("@/lib/guards");
 const { POST: register } = await import("@/app/api/register-customer/route");
 
@@ -153,6 +153,38 @@ describe("provedor account e guardas", () => {
   });
 });
 
+describe("AUTH_SECRET", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("obrigatorio fora de teste; teste usa valor fixo; authOptions le na hora do uso", () => {
+    vi.stubEnv("AUTH_SECRET", "abc");
+    expect(authOptions.secret).toBe("abc");
+    vi.stubEnv("AUTH_SECRET", "");
+    expect(authSecret()).toBe("segredo-fixo-so-para-testes");
+    for (const env of ["development", "production"]) {
+      vi.stubEnv("NODE_ENV", env);
+      expect(() => authOptions.secret).toThrow(/AUTH_SECRET/);
+    }
+  });
+});
+
+describe("limite de tentativas de login (IP + email)", () => {
+  it("account: 10 tentativas (falhas contam), a 11a e recusada; outro IP ou email segue", async () => {
+    const a = await account();
+    const ip = `10.0.0.${tag}`;
+    for (let i = 0; i < 10; i++) expect(await authorizeAccount({ email: a.email, password: "errada-123" }, ip)).toBeNull();
+    await expect(authorizeAccount({ email: a.email, password: PW }, ip)).rejects.toThrow(auth.TOO_MANY_ATTEMPTS);
+    expect((await authorizeAccount({ email: a.email, password: PW }, `${ip}-outro`))?.id).toBe(a.id);
+    expect(await authorizeAccount({ email: `x-${a.email}`, password: PW }, ip)).toBeNull();
+  });
+  it("customer: limite por loja + IP + email", async () => {
+    const c = await customer(A.id, `lim-${tag}@t.local`);
+    const ip = `10.0.1.${tag}`;
+    for (let i = 0; i < 10; i++) await authorizeCustomer({ email: c.email, password: "errada-123" }, host(A), ip);
+    await expect(authorizeCustomer({ email: c.email, password: PW }, host(A), ip)).rejects.toThrow(auth.TOO_MANY_ATTEMPTS);
+    expect(await authorizeCustomer({ email: c.email, password: PW }, host(B), ip)).toBeNull(); // outra loja: contador proprio
+  });
+});
+
 describe("POST /api/register-customer", () => {
   const body = (email: string, extra: object = {}) => ({ name: "Maria", email, cpf: "529.982.247-25", phone: "11 99999-0000", password: PW, ...extra });
   const post = (h: string | null, data: unknown) =>
@@ -184,6 +216,17 @@ describe("POST /api/register-customer", () => {
     expect((await post(host(A), body(`x-${tag}@t.local`, { password: "1234567" }))).status).toBe(400);
     expect((await post(host(A), body("nao-e-email"))).status).toBe(400);
     expect(await dbForStore(A.id).customer.count()).toBe(0);
+  });
+  it("429 apos 10 cadastros do mesmo IP na mesma loja", async () => {
+    const ip = { "x-forwarded-for": `10.0.2.${tag}` };
+    const send = (s: { slug: string }) => register(new Request("http://x/api/register-customer", {
+      method: "POST", headers: { "content-type": "application/json", "x-store-host": host(s), ...ip }, body: "{}",
+    }));
+    for (let i = 0; i < 10; i++) expect((await send(A)).status).toBe(400);
+    const res = await send(A);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBeTruthy();
+    expect((await send(B)).status).toBe(400);
   });
   it("404 sem loja no host; 403 para loja suspensa ou cancelada", async () => {
     expect((await post(null, body(`x-${tag}@t.local`))).status).toBe(404);

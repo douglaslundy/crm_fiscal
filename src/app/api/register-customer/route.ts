@@ -7,6 +7,9 @@ import { dbForStore } from "@/lib/db-store";
 import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
 import { resolveStoreByHost } from "@/lib/tenant";
 import { isStoreBlocked } from "@/domain/subscription";
+import { clientIp, createRateLimiter } from "@/lib/rate-limit";
+
+const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 });
 
 const Body = z.object({
   name: z.string().trim().min(1).max(120),
@@ -24,6 +27,8 @@ export async function POST(req: Request) {
   const store = host ? await resolveStoreByHost(host, platformDomain()) : null;
   if (!store) return err(404, "Loja não encontrada.");
   if (isStoreBlocked(store)) return err(403, "Esta loja não está aceitando cadastros.");
+  const rl = registerLimiter.check(`${store.id}|${clientIp(req.headers)}`);
+  if (!rl.ok) return NextResponse.json({ error: "MUITAS_REQUISICOES" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return err(400, "Dados inválidos.", { fields: z.flattenError(parsed.error).fieldErrors });

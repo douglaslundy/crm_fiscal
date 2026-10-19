@@ -143,6 +143,19 @@ describe("POST /api/checkout/order", () => {
     expect((await ok.json()).totalCents).toBe(totalCents);
   });
 
+  it("idempotencyKey: reenvio com a mesma chave devolve o mesmo pedido; chave nao-uuid -> 400", async () => {
+    const v = await mkVariant(A.id, "v", 5, 4000);
+    login(custA, A.id);
+    const body = { lines: [{ variantId: v, qty: 1 }], addressId: custA.addressId, shippingService: "PAC", idempotencyKey: crypto.randomUUID() };
+    const first = await postOrder(body);
+    expect(first.status).toBe(201);
+    const again = await postOrder(body);
+    expect(again.status).toBe(201);
+    expect((await again.json()).orderId).toBe((await first.json()).orderId);
+    expect(await prisma.order.count({ where: { storeId: A.id } })).toBe(1);
+    expect((await postOrder({ ...body, idempotencyKey: "x" })).status).toBe(400);
+  });
+
   it("total acima do int4 -> 422 TOTAL_MUITO_ALTO, estoque intacto", async () => {
     const v = await mkVariant(A.id, "v", 50, 100_000_000);
     login(custA, A.id);

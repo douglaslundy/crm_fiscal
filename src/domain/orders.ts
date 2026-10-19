@@ -33,6 +33,8 @@ export type CreateOrderInput = {
   storeId: string; customerId: string; lines: CartLine[]; addressId: string; shippingService: string;
   /** Total que o cliente viu; so comparado (o do servidor sempre vale). Diferente = TotalChangedError antes de baixar estoque. */
   expectedTotalCents?: number;
+  /** Chave do cliente por tentativa de checkout: repetir a mesma chave devolve o pedido ja criado (envio duplo). */
+  idempotencyKey?: string;
 };
 type Db = Parameters<typeof loadVariantRows>[0];
 
@@ -61,6 +63,12 @@ export async function createOrder(
   const { storeId, customerId } = input;
   assertStoreCanSell(await prisma.store.findUniqueOrThrow({ where: { id: storeId }, select: { status: true } }));
   const db = dbForStore(storeId);
+  const key = input.idempotencyKey;
+  const existing = () => db.order.findFirst({ where: { idempotencyKey: key, customerId }, include: { items: true } });
+  if (key) {
+    const found = await existing();
+    if (found) return found;
+  }
   // escopo da loja + dono: endereco de outro cliente ou de outra loja nao casa
   const address = await db.address.findFirst({ where: { id: input.addressId, customerId } });
   if (!address) throw new AddressInvalidError("Endereço inválido");
@@ -86,6 +94,7 @@ export async function createOrder(
   if (totalCents > MAX_CENTS) throw new TotalTooLargeError("Total acima do limite");
   if (input.expectedTotalCents !== undefined && input.expectedTotalCents !== totalCents) throw new TotalChangedError(totalCents);
 
+  // Envio duplo concorrente com a mesma chave: o perdedor falha (unique ou estoque) e devolve o pedido do vencedor.
   return db.$transaction(async (tx) => {
     const fresh = await priceOrThrow(tx, input.lines);
     if (pricingKey(fresh.lines) !== pricingKey(quoted.lines)) throw new CartChangedError([]);
@@ -106,6 +115,7 @@ export async function createOrder(
         storeId, customerId, status: "PENDING_PAYMENT",
         subtotalCents: fresh.subtotalCents, shippingCents: shipping.priceCents, totalCents,
         shippingService: shipping.service, addressSnapshot: { cep, street, number, complement, district, city, state },
+        idempotencyKey: key,
       },
     });
     await tx.orderItem.createMany({
@@ -115,6 +125,10 @@ export async function createOrder(
       })),
     });
     return { ...order, items: await tx.orderItem.findMany({ where: { orderId: order.id } }) };
+  }).catch(async (e) => {
+    const found = key ? await existing() : null;
+    if (found) return found;
+    throw e;
   });
 }
 

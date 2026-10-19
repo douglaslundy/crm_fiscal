@@ -242,6 +242,7 @@ model Order {
   mpPaymentId     String?     @unique
   pixQrCode       String?
   pixExpiresAt    DateTime?
+  idempotencyKey  String?
   createdAt       DateTime    @default(now())
   store           Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   // NoAction de proposito: historico de pedidos protegido (cliente com pedidos nao e apagado).
@@ -249,6 +250,7 @@ model Order {
   items           OrderItem[]
 
   @@unique([storeId, id])
+  @@unique([storeId, idempotencyKey])
   @@index([storeId, status])
   @@index([customerId])
 }

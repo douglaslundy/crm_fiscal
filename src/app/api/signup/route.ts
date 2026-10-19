@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
+import { clientIp, createRateLimiter } from "@/lib/rate-limit";
 import { EmailExistsError, PlanNotFoundError, SlugInvalidError, SlugTakenError, createStore } from "@/domain/stores";
 
 const Body = z.object({
@@ -13,11 +14,15 @@ const Body = z.object({
   planId: z.string().min(1),
 });
 
+const signupLimiter = createRateLimiter({ limit: 5, windowMs: 60 * 60_000 });
+
 const err = (status: number, error: string, extra?: object) => NextResponse.json({ error, ...extra }, { status });
 
 /** Cadastro de lojista; so no host da plataforma. */
 export async function POST(req: Request) {
   if (req.headers.get(STORE_HOST_HEADER)) return err(404, "Não encontrado.");
+  const rl = signupLimiter.check(clientIp(req.headers));
+  if (!rl.ok) return NextResponse.json({ error: "MUITAS_REQUISICOES" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return err(400, "Dados inválidos.", { fields: z.flattenError(parsed.error).fieldErrors });
 

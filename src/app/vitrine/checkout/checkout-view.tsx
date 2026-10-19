@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CartIssue, PricedLine } from "@/domain/cart";
 import { formatBRL } from "@/domain/money";
 import { clear, read, replace, serverSnapshot, subscribe } from "@/lib/cart-store";
@@ -40,6 +40,7 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
   const [refresh, setRefresh] = useState(0);
   const [done, setDone] = useState(false);
   const [serverTotal, setServerTotal] = useState<number | null>(null); // total do servidor que o cliente ainda precisa confirmar
+  const attempt = useRef<{ cart: string; id: string } | null>(null);
 
   // Reprecifica o carrinho; a correcao do servidor regrava o carrinho guardado.
   useEffect(() => {
@@ -81,7 +82,9 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
     setBusy(true); setError(null);
     try {
       const expectedTotalCents = serverTotal ?? (priced && shipping ? priced.subtotalCents + shipping.priceCents : undefined);
-      const r = await post("/api/checkout/order", { lines: stored, addressId, shippingService: shipping?.service, expectedTotalCents });
+      // uma chave por carrinho: reenvio (clique duplo, resposta perdida) devolve o mesmo pedido em vez de criar outro
+      if (attempt.current?.cart !== key) attempt.current = { cart: key, id: crypto.randomUUID() };
+      const r = await post("/api/checkout/order", { lines: stored, addressId, shippingService: shipping?.service, expectedTotalCents, idempotencyKey: attempt.current.id });
       const data = await r.json().catch(() => null);
       if (r.status === 201) {
         setDone(true);

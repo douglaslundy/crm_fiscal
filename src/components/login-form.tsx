@@ -20,7 +20,7 @@ export function LoginForm({ provider, next }: { provider: "account" | "customer"
     if (r?.ok && !r.error) {
       router.replace(next);
       router.refresh();
-    } else setError("E-mail ou senha inválidos.");
+    } else setError(r?.error === "MUITAS_TENTATIVAS" ? "Muitas tentativas. Aguarde alguns minutos." : "E-mail ou senha inválidos.");
   }
 
   return (

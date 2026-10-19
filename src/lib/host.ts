@@ -14,4 +14,10 @@ export function isPlatformHost(host: string, platformDomain: string): boolean {
 
 /** Header interno com o host da loja; definido so pelo middleware. */
 export const STORE_HOST_HEADER = "x-store-host";
-export const platformDomain = () => process.env.PLATFORM_DOMAIN ?? "localhost";
+/** Dominio da plataforma; em producao e obrigatorio (sem padrao localhost). */
+export function platformDomain(): string {
+  const d = process.env.PLATFORM_DOMAIN;
+  if (d) return d;
+  if (process.env.NODE_ENV === "production") throw new Error("PLATFORM_DOMAIN nao definido em producao");
+  return "localhost";
+}

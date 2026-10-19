@@ -75,7 +75,7 @@ describe("loadStoreMetrics / exportOrdersCsv (banco)", () => {
     return { id: s.id, customerId: c.id };
   };
   const order = (s: { id: string; customerId: string }, status: OrderStatus, total: number, createdAt: Date) =>
-    prisma.order.create({ data: { storeId: s.id, customerId: s.customerId, status, subtotalCents: total, shippingCents: 0, totalCents: total, shippingService: "PAC", addressSnapshot: {}, createdAt, items: { create: { storeId: s.id, productName: "Camiseta", sku: "x", color: "P", size: "M", unitPriceCents: total, quantity: 2 } } } });
+    prisma.order.create({ data: { storeId: s.id, customerId: s.customerId, status, subtotalCents: total, shippingCents: 0, totalCents: total, shippingService: "PAC", addressSnapshot: {}, createdAt, items: { create: { productName: "Camiseta", sku: "x", color: "P", size: "M", unitPriceCents: total, quantity: 2 } } } });
   const now = new Date("2026-06-15T15:00:00Z");
   const recent = new Date("2026-06-14T15:00:00Z");
 

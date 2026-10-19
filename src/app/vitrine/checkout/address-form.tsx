@@ -26,7 +26,8 @@ export function AddressForm({ onCreated, address }: { onCreated: (a: Address) =>
         method: address ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(form))),
       });
       if (r.ok) { if (!address) form.reset(); onCreated(await r.json()); }
-      else setError(r.status === 400 ? "Confira os dados do endereço (CEP e UF com 2 letras)." : "Não foi possível salvar o endereço.");
+      else setError(r.status === 400 ? "Confira os dados do endereço (CEP e UF com 2 letras)."
+        : r.status === 422 ? "Limite de endereços atingido. Apague um endereço antigo." : "Não foi possível salvar o endereço.");
     } catch {
       setError("Não foi possível salvar o endereço.");
     } finally {
