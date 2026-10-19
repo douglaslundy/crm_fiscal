@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { PaymentGatewayError, type GatewayResult, type PaymentGateway, type PaymentStatus, type PixResult, type RemotePayment } from "./types";
+import { BOLETO_TTL_MS, PaymentGatewayError, type BoletoResult, type GatewayResult, type PaymentGateway, type PaymentStatus, type PixResult, type RemotePayment } from "./types";
 
 const API = "https://api.mercadopago.com";
 const TIMEOUT_MS = 10_000;
@@ -94,6 +94,30 @@ export class MercadoPagoGateway implements PaymentGateway {
       id, status, qrCode: data.qr_code, qrCodeBase64: typeof data.qr_code_base64 === "string" ? data.qr_code_base64 : "",
       expiresAt: remoteExp && !isNaN(remoteExp.getTime()) ? remoteExp : expiresAt,
     };
+  }
+
+  /**
+   * Boleto (bolbradesco): o MP exige nome e endereco completo do pagador. URL do boleto em transaction_details.external_resource_url,
+   * linha digitavel em barcode.content. shortcut: formato nao exercitado contra a API real (so com fetch injetado).
+   */
+  async payBoleto(input: Parameters<PaymentGateway["payBoleto"]>[0], idempotencyKey: string): Promise<BoletoResult> {
+    const expiresAt = new Date((this.deps.now?.() ?? new Date()).getTime() + BOLETO_TTL_MS);
+    const { payer } = input;
+    const r = await this.call("POST", "/v1/payments", {
+      ...this.base(input),
+      payment_method_id: "bolbradesco",
+      date_of_expiration: expiresAt.toISOString(),
+      payer: {
+        email: payer.email, first_name: payer.firstName, last_name: payer.lastName, identification: { type: "CPF", number: payer.cpf },
+        address: { zip_code: payer.address.zip, street_name: payer.address.street, street_number: payer.address.number, neighborhood: payer.address.district, city: payer.address.city, federal_unit: payer.address.state },
+      },
+    }, idempotencyKey);
+    const { id, status } = this.parse(r);
+    const url = (r.transaction_details as { external_resource_url?: unknown } | undefined)?.external_resource_url;
+    const barcode = (r.barcode as { content?: unknown } | undefined)?.content;
+    if (typeof url !== "string" || !url.startsWith("https://")) throw new PaymentGatewayError("Resposta do Mercado Pago sem URL do boleto");
+    const remoteExp = typeof r.date_of_expiration === "string" ? new Date(r.date_of_expiration) : null;
+    return { id, status, url, barcode: typeof barcode === "string" ? barcode : "", expiresAt: remoteExp && !isNaN(remoteExp.getTime()) ? remoteExp : expiresAt };
   }
 
   async getPayment(id: string): Promise<RemotePayment> {

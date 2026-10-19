@@ -87,7 +87,7 @@ describe("payOrder", () => {
     const pend = await mkOrder(S, cust);
     await payOrder({ storeId: S, customerId: cust, orderId: pend.id, method: "card", card: card("pending") }, fake);
     expect((await order(pend.id)).paymentMethod).toBe("card");
-    const gw: PaymentGateway = { payCard: (...a) => fake.payCard(...a), getPayment: (...a) => fake.getPayment(...a), payPix: async (...a) => ({ ...(await fake.payPix(...a)), qrCodeBase64: "PNGDATA" }) };
+    const gw: PaymentGateway = { payBoleto: (...a) => fake.payBoleto(...a), payCard: (...a) => fake.payCard(...a), getPayment: (...a) => fake.getPayment(...a), payPix: async (...a) => ({ ...(await fake.payPix(...a)), qrCodeBase64: "PNGDATA" }) };
     const px = await mkOrder(S, cust);
     await payOrder({ storeId: S, customerId: cust, orderId: px.id, method: "pix" }, gw);
     expect(await order(px.id)).toMatchObject({ paymentMethod: "pix", pixQrBase64: "PNGDATA" });
@@ -159,7 +159,7 @@ describe("payOrder", () => {
     const both = new Promise<void>((r) => { release = r; });
     let n = 0;
     const gw: PaymentGateway = {
-      payPix: fake.payPix.bind(fake), getPayment: fake.getPayment.bind(fake),
+      payPix: fake.payPix.bind(fake), payBoleto: fake.payBoleto.bind(fake), getPayment: fake.getPayment.bind(fake),
       payCard: async (input, key) => { if (++n === 2) release(); await both; return fake.payCard(input, key); },
     };
     const pay2 = () => payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "card", card: card("approved") }, gw);
@@ -378,5 +378,78 @@ describe("expireOrders", () => {
     remote(`pp-${tag}`, o.id, "pending", 10001, "bank_transfer");
     await expireOrders(now);
     expect((await order(o.id)).status).toBe("CANCELED");
+  });
+});
+
+describe("boleto", () => {
+  const DAY = 86_400_000;
+
+  it("gera boleto pelo total (sem desconto Pix), grava os dados e reaproveita na 2a chamada", async () => {
+    await updateSettings(S, { pixDiscountPercent: 5 });
+    const o = await mkOrder(S, cust, { totalCents: 10001 });
+    const r = await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "boleto" }, fake);
+    expect(r.status).toBe("PENDING_PAYMENT");
+    expect(r.boleto).toMatchObject({ amountCents: 10001, url: expect.stringContaining("https://") });
+    expect(r.boleto!.expiresAt.getTime() - Date.now()).toBeGreaterThan(2.9 * DAY);
+    const db = await order(o.id);
+    expect(db).toMatchObject({ paymentMethod: "boleto", boletoUrl: r.boleto!.url, pixExpiresAt: null, pixQrCode: null });
+    expect(fake.payments.get(db.mpPaymentId!)).toMatchObject({ amountCents: 10001, paymentTypeId: "ticket", externalReference: o.id });
+    const size = fake.payments.size;
+    const again = await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "boleto" }, fake);
+    expect(again.boleto!.url).toBe(r.boleto!.url);
+    expect(fake.payments.size).toBe(size);
+  });
+  it("boleto vigente bloqueia Pix e cartao (BOLETO_LIVE) sem cobrar; Pix vigente bloqueia boleto (PIX_LIVE); vencido -> BOLETO_EXPIRED", async () => {
+    const o = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "boleto" }, fake);
+    const size = fake.payments.size;
+    await expect(payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "pix" }, fake)).rejects.toMatchObject({ code: "BOLETO_LIVE" });
+    await expect(payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "card", card: card("approved") }, fake)).rejects.toMatchObject({ code: "BOLETO_LIVE" });
+    expect(fake.payments.size).toBe(size);
+    await expect(payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "boleto" }, fake, new Date(Date.now() + 4 * DAY))).rejects.toMatchObject({ code: "BOLETO_EXPIRED" });
+
+    const p = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: p.id, method: "pix" }, fake);
+    await expect(payOrder({ storeId: S, customerId: cust, orderId: p.id, method: "boleto" }, fake)).rejects.toMatchObject({ code: "PIX_LIVE" });
+  });
+  it("Pix vencido + boleto: o Pix antigo sai de cena (o cron nao cancela no vencimento dele)", async () => {
+    const o = await mkOrder(S, cust, { pixExpiresAt: new Date(Date.now() - 60_000) });
+    await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "boleto" }, fake);
+    expect(await order(o.id)).toMatchObject({ pixExpiresAt: null, pixQrCode: null, paymentMethod: "boleto" });
+  });
+  it("webhook approved do boleto -> PAID pelo total; valor diferente -> alerta e nao paga", async () => {
+    const [a, b] = [await mkOrder(S, cust), await mkOrder(S, cust)];
+    const ra = await payOrder({ storeId: S, customerId: cust, orderId: a.id, method: "boleto" }, fake);
+    const rb = await payOrder({ storeId: S, customerId: cust, orderId: b.id, method: "boleto" }, fake);
+    const [ida, idb] = [(await order(a.id)).mpPaymentId!, (await order(b.id)).mpPaymentId!];
+    expect(ra.boleto && rb.boleto).toBeTruthy();
+    fake.put({ id: ida, status: "approved", externalReference: a.id, amountCents: 10001, paymentTypeId: "ticket" });
+    expect(await syncPayment(S, ida, fake)).toBe("paid");
+    expect((await order(a.id)).status).toBe("PAID");
+    const spy = alerts();
+    fake.put({ id: idb, status: "approved", externalReference: b.id, amountCents: 9999, paymentTypeId: "ticket" });
+    expect(await syncPayment(S, idb, fake)).toBe("alert");
+    expect((await order(b.id)).status).toBe("PENDING_PAYMENT");
+    expect(spy).toHaveBeenCalled();
+  });
+  it("cron: boleto vigente e boleto vencido ha menos de 1 dia seguem reservados; vencido ha mais de 1 dia e nao pago cancela e devolve estoque; pago no gateway vira PAID", async () => {
+    const now = new Date();
+    const mk = async (expiresAt: Date, k: string) => {
+      const o = await mkOrder(S, cust, { createdAt: new Date(now.getTime() - 6 * DAY), mpPaymentId: `bol-${k}-${tag}` });
+      await prisma.order.update({ where: { id: o.id }, data: { pixExpiresAt: null, pixQrCode: null, paymentMethod: "boleto", boletoUrl: "https://x", boletoExpiresAt: expiresAt } });
+      return o;
+    };
+    const live = await mk(new Date(now.getTime() + DAY), "live");
+    const grace = await mk(new Date(now.getTime() - DAY / 2), "grace");
+    const dead = await mk(new Date(now.getTime() - 2 * DAY), "dead");
+    const paid = await mk(new Date(now.getTime() - 2 * DAY), "paid");
+    remote(`bol-dead-${tag}`, dead.id, "pending", 10001, "ticket");
+    remote(`bol-paid-${tag}`, paid.id, "approved", 10001, "ticket");
+    await expireOrders(now);
+    expect((await order(live.id)).status).toBe("PENDING_PAYMENT");
+    expect((await order(grace.id)).status).toBe("PENDING_PAYMENT");
+    expect((await order(dead.id)).status).toBe("CANCELED");
+    expect(await stock(dead.variantId)).toBe(10);
+    expect((await order(paid.id)).status).toBe("PAID");
   });
 });

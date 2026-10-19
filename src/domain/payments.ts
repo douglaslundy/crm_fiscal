@@ -3,16 +3,16 @@ import type { OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dbForStore } from "@/lib/db-store";
 import { gatewayForStore } from "@/integrations/payments";
-import { isPixType, PaymentGatewayError, type PaymentGateway, type PaymentStatus } from "@/integrations/payments/types";
+import { isPixType, PaymentGatewayError, type BoletoPayer, type PaymentGateway, type PaymentStatus } from "@/integrations/payments/types";
 import { pixPriceCents } from "./money";
 import { cancelOrder, OrderNotFoundError } from "./orders";
 import { getSettings } from "./storeSettings";
 import { assertStoreCanSell } from "./subscription";
 
-export type PaymentMethod = "card" | "pix";
+export type PaymentMethod = "card" | "pix" | "boleto";
 
 /**
- * Valor cobrado: cartao = total do pedido; Pix = total com o desconto da loja, centavo para baixo (pixPriceCents: o cliente
+ * Valor cobrado: cartao e boleto = total do pedido; Pix = total com o desconto da loja, centavo para baixo (pixPriceCents: o cliente
  * nunca paga mais do que viu). Sempre calculado aqui a partir do pedido; valor vindo do navegador nao existe.
  */
 export const amountFor = (method: PaymentMethod, totalCents: number, pixDiscountPercent: number) =>
@@ -75,7 +75,7 @@ export async function syncPayment(storeId: string, paymentId: string, gw: Paymen
   return applyPaymentUpdate(storeId, order.id, p.status, p.id);
 }
 
-export type PayErrorCode = "NOT_FOUND" | "NOT_PENDING" | "PIX_EXPIRED" | "PIX_LIVE" | "REJECTED";
+export type PayErrorCode = "NOT_FOUND" | "NOT_PENDING" | "PIX_EXPIRED" | "PIX_LIVE" | "BOLETO_EXPIRED" | "BOLETO_LIVE" | "REJECTED";
 export class PayError extends Error {
   name = "PayError";
   constructor(readonly code: PayErrorCode) { super(code); }
@@ -88,6 +88,7 @@ export type PayInput = {
 export type PayResult = {
   status: OrderStatus;
   pix?: { qrCode: string; qrCodeBase64: string | null; expiresAt: Date; amountCents: number };
+  boleto?: { url: string; barcode: string; expiresAt: Date; amountCents: number };
 };
 
 /**
@@ -103,13 +104,45 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
   const db = dbForStore(storeId);
   const order = await db.order.findFirst({
     where: { id: orderId, customerId },
-    select: { id: true, status: true, totalCents: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true, pixAmountCents: true },
+    select: {
+      id: true, status: true, totalCents: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true, pixAmountCents: true,
+      boletoUrl: true, boletoBarcode: true, boletoExpiresAt: true, addressSnapshot: true,
+    },
   });
   if (!order) throw new PayError("NOT_FOUND");
   if (order.status !== "PENDING_PAYMENT") throw new PayError("NOT_PENDING");
-  const customer = await db.customer.findFirstOrThrow({ where: { id: customerId }, select: { email: true, cpf: true } });
+  const customer = await db.customer.findFirstOrThrow({ where: { id: customerId }, select: { email: true, cpf: true, name: true } });
   const payer = { email: customer.email, cpf: customer.cpf };
   const pending = { id: orderId, status: "PENDING_PAYMENT" as const };
+
+  const boletoLive = !!order.boletoExpiresAt && order.boletoExpiresAt > now;
+
+  if (input.method === "boleto") {
+    if (order.boletoUrl && order.boletoExpiresAt) {
+      if (order.boletoExpiresAt <= now) throw new PayError("BOLETO_EXPIRED");
+      return { status: order.status, boleto: { url: order.boletoUrl, barcode: order.boletoBarcode ?? "", expiresAt: order.boletoExpiresAt, amountCents: order.totalCents } };
+    }
+    if (order.pixExpiresAt && order.pixExpiresAt > now) throw new PayError("PIX_LIVE");
+    const a = order.addressSnapshot as { cep: string; street: string; number: string; district: string; city: string; state: string };
+    const [firstName, ...rest] = customer.name.trim().split(/\s+/);
+    const boletoPayer: BoletoPayer = {
+      ...payer, firstName, lastName: rest.join(" ") || firstName,
+      address: { zip: a.cep, street: a.street, number: a.number, district: a.district, city: a.city, state: a.state },
+    };
+    const r = await gw.payBoleto({ orderId, amountCents: order.totalCents, payer: boletoPayer }, `order:${orderId}:boleto`);
+    // um pagamento vivo por vez: Pix antigo (vencido) sai de cena para o cron nao cancelar o pedido no vencimento dele
+    const { count } = await db.order.updateMany({
+      where: pending,
+      data: {
+        mpPaymentId: r.id, paymentMethod: "boleto", boletoUrl: r.url, boletoBarcode: r.barcode, boletoExpiresAt: r.expiresAt,
+        pixQrCode: null, pixQrBase64: null, pixExpiresAt: null, pixAmountCents: null,
+      },
+    });
+    if (count === 0) throw new PayError("NOT_PENDING");
+    return { status: "PENDING_PAYMENT", boleto: { url: r.url, barcode: r.barcode, expiresAt: r.expiresAt, amountCents: order.totalCents } };
+  }
+
+  if (boletoLive) throw new PayError("BOLETO_LIVE"); // boleto vigente e o pagamento atual: nem Pix nem cartao por cima
 
   if (input.method === "pix") {
     if (order.pixQrCode && order.pixExpiresAt) {
@@ -144,6 +177,7 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
 }
 
 const EXPIRE_BATCH = 200;
+const BOLETO_GRACE_MS = 24 * 60 * 60_000;
 const UNPAID_TTL_MS = 60 * 60_000;
 const CARD_PENDING_TTL_MS = 72 * 60 * 60_000; // cartao em analise: reserva o estoque ate 72 h da criacao do pedido
 
@@ -159,7 +193,12 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
   const gatewayFor = deps.gatewayFor ?? ((id: string) => gatewayForStore(id));
   const due = {
     status: "PENDING_PAYMENT" as const,
-    OR: [{ pixExpiresAt: { lt: now } }, { pixExpiresAt: null, createdAt: { lt: new Date(now.getTime() - UNPAID_TTL_MS) } }],
+    OR: [
+      { pixExpiresAt: { lt: now } },
+      // boleto: vence em 3 dias e a compensacao chega ate 1 dia depois; so entao o pedido e conferido/cancelado
+      { boletoExpiresAt: { lt: new Date(now.getTime() - BOLETO_GRACE_MS) } },
+      { pixExpiresAt: null, boletoExpiresAt: null, createdAt: { lt: new Date(now.getTime() - UNPAID_TTL_MS) } },
+    ],
   };
   const stores = await prisma.store.findMany({ where: { orders: { some: due } }, select: { id: true } });
   const out = { canceled: 0, paid: 0, skipped: 0, failedStores: [] as string[] };

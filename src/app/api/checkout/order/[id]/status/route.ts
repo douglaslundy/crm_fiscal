@@ -10,7 +10,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const order = await dbForStore(ctx.store.id).order.findFirst({
     where: { id, customerId: ctx.customerId },
-    select: { status: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true },
+    select: { status: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true, boletoUrl: true, boletoBarcode: true, boletoExpiresAt: true },
   });
   return order ? NextResponse.json(order) : err(404, "Não encontrado.");
 }

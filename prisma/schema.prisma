@@ -368,6 +368,10 @@ model Order {
   /// "pix" | "card"; definido quando o pagamento e iniciado.
   paymentMethod   String?
   pixExpiresAt    DateTime?
+  /// Boleto vigente: link, linha digitavel e vencimento (mesmo pedido so tem Pix OU boleto vivo).
+  boletoUrl       String?
+  boletoBarcode   String?
+  boletoExpiresAt DateTime?
   /// Valor cobrado no Pix quando o QR foi criado (o desconto da loja pode mudar depois).
   pixAmountCents  Int?
   idempotencyKey  String?

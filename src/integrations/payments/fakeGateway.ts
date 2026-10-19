@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { PaymentGatewayError, PIX_TTL_MS, type GatewayResult, type PaymentGateway, type PaymentStatus, type PixResult, type RemotePayment } from "./types";
+import { BOLETO_TTL_MS, PaymentGatewayError, PIX_TTL_MS, type BoletoResult, type GatewayResult, type PaymentGateway, type PaymentStatus, type PixResult, type RemotePayment } from "./types";
 
 const CARD_TOKENS: readonly string[] = ["approved", "rejected", "pending"] satisfies PaymentStatus[];
 
@@ -8,10 +8,10 @@ const CARD_TOKENS: readonly string[] = ["approved", "rejected", "pending"] satis
  * ("approved" | "rejected" | "pending"; outro token = rejected). Mesma chave de idempotencia = mesmo pagamento (como o MP).
  */
 export class FakeGateway implements PaymentGateway {
-  readonly payments = new Map<string, RemotePayment & { qrCode?: string; expiresAt?: Date }>();
+  readonly payments = new Map<string, RemotePayment & { qrCode?: string; expiresAt?: Date; boletoUrl?: string; barcode?: string }>();
   private readonly byKey = new Map<string, string>();
 
-  private create(key: string, p: Omit<RemotePayment, "id">, extra: { qrCode?: string; expiresAt?: Date } = {}) {
+  private create(key: string, p: Omit<RemotePayment, "id">, extra: { qrCode?: string; expiresAt?: Date; boletoUrl?: string; barcode?: string } = {}) {
     const known = this.byKey.get(key);
     if (known) return this.payments.get(known)!;
     const id = `fake-${randomUUID()}`;
@@ -34,6 +34,15 @@ export class FakeGateway implements PaymentGateway {
       { qrCode: `00020126FAKEPIX${input.orderId}`, expiresAt: new Date(Date.now() + PIX_TTL_MS) },
     );
     return { id: p.id, status: p.status, qrCode: p.qrCode!, qrCodeBase64: "", expiresAt: p.expiresAt! };
+  }
+
+  async payBoleto(input: Parameters<PaymentGateway["payBoleto"]>[0], key: string): Promise<BoletoResult> {
+    const p = this.create(
+      key,
+      { status: "pending", externalReference: input.orderId, amountCents: input.amountCents, paymentTypeId: "ticket" },
+      { boletoUrl: `https://fake.local/boleto/${input.orderId}`, barcode: `34191790010104351004791020150008${String(input.amountCents).padStart(15, "0")}`, expiresAt: new Date(Date.now() + BOLETO_TTL_MS) },
+    );
+    return { id: p.id, status: p.status, url: p.boletoUrl!, barcode: p.barcode!, expiresAt: p.expiresAt! };
   }
 
   async getPayment(id: string): Promise<RemotePayment> {

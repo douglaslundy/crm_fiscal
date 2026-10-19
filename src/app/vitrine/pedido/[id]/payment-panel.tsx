@@ -5,6 +5,7 @@ import type { OrderStatus } from "@prisma/client";
 import { formatBRL } from "@/domain/money";
 
 type Pix = { qrCode: string; qrCodeBase64: string | null; expiresAt: string };
+type Boleto = { url: string; barcode: string; expiresAt: string };
 type CardInput = { token: string; installments: number; paymentMethodId: string };
 type BrickController = { unmount(): void };
 type MercadoPagoCtor = new (publicKey: string, opts: { locale: string }) => {
@@ -17,6 +18,9 @@ const PAY_ERRORS: Record<string, string> = {
   PAGAMENTO_NAO_CONFIGURADO: "Esta loja ainda não aceita pagamentos online.",
   PEDIDO_NAO_PENDENTE: "Este pedido não está mais aguardando pagamento.",
   PIX_EXPIRADO: "O Pix expirou. Faça um novo pedido.",
+  PIX_EM_ANDAMENTO: "Você já gerou um Pix para este pedido. Pague por ele ou aguarde o vencimento.",
+  BOLETO_EXPIRADO: "O boleto venceu. Faça um novo pedido.",
+  BOLETO_EM_ANDAMENTO: "Você já gerou um boleto para este pedido. Pague por ele ou aguarde o vencimento.",
   MUITAS_REQUISICOES: "Muitas tentativas. Aguarde um minuto.",
   STORE_UNAVAILABLE: "Loja indisponível no momento.",
 };
@@ -26,11 +30,11 @@ const STATUS_TEXT: Partial<Record<OrderStatus, string>> = {
 };
 const SDK = "https://sdk.mercadopago.com/js/v2";
 
-async function pay(orderId: string, body: { method: "pix" } | { method: "card"; card: CardInput }) {
+async function pay(orderId: string, body: { method: "pix" } | { method: "boleto" } | { method: "card"; card: CardInput }) {
   const r = await fetch("/api/checkout/pay", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ orderId, ...body }) });
   const data = await r.json().catch(() => null);
   if (!r.ok) throw new Error(PAY_ERRORS[data?.error] ?? "Não foi possível pagar. Tente novamente.");
-  return data as { status: OrderStatus; pix?: Pix & { amountCents: number } };
+  return data as { status: OrderStatus; pix?: Pix & { amountCents: number }; boleto?: Boleto & { amountCents: number } };
 }
 
 function loadSdk(): Promise<MercadoPagoCtor> {
@@ -72,13 +76,14 @@ function CardBrick({ publicKey, totalCents, onCard }: { publicKey: string; total
   return failed ? <p role="alert">Não foi possível carregar o pagamento com cartão.</p> : <div id="card-brick" />;
 }
 
-type Props = { orderId: string; initialStatus: OrderStatus; totalCents: number; pixCents: number; initialPix: Pix | null };
+type Props = { orderId: string; initialStatus: OrderStatus; totalCents: number; pixCents: number; initialPix: Pix | null; initialBoleto: Boleto | null };
 
-/** Pagamento do pedido: Pix (QR + copia-e-cola) ou cartao. Consulta o status a cada 5 s enquanto aguarda pagamento. */
-export function PaymentPanel({ orderId, initialStatus, totalCents, pixCents, initialPix }: Props) {
+/** Pagamento do pedido: Pix (QR + copia-e-cola), boleto ou cartao. Consulta o status a cada 5 s enquanto aguarda pagamento. */
+export function PaymentPanel({ orderId, initialStatus, totalCents, pixCents, initialPix, initialBoleto }: Props) {
   const [status, setStatus] = useState(initialStatus);
   const [pix, setPix] = useState<Pix | null>(initialPix);
-  const [method, setMethod] = useState<"pix" | "card" | null>(initialPix ? "pix" : null);
+  const [boleto, setBoleto] = useState<Boleto | null>(initialBoleto);
+  const [method, setMethod] = useState<"pix" | "card" | "boleto" | null>(initialPix ? "pix" : initialBoleto ? "boleto" : null);
   const [config, setConfig] = useState<{ publicKey: string | null; fake: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,8 +101,9 @@ export function PaymentPanel({ orderId, initialStatus, totalCents, pixCents, ini
     const t = setInterval(async () => {
       const r = await fetch(`/api/checkout/order/${encodeURIComponent(orderId)}/status`).catch(() => null);
       if (!r?.ok) return;
-      const d = (await r.json()) as { status: OrderStatus; pixQrCode: string | null; pixQrBase64: string | null; pixExpiresAt: string | null };
+      const d = (await r.json()) as { status: OrderStatus; pixQrCode: string | null; pixQrBase64: string | null; pixExpiresAt: string | null; boletoUrl: string | null; boletoBarcode: string | null; boletoExpiresAt: string | null };
       setStatus(d.status);
+      if (d.boletoUrl && d.boletoExpiresAt) setBoleto((b) => (b?.url === d.boletoUrl ? b : { url: d.boletoUrl!, barcode: d.boletoBarcode ?? "", expiresAt: d.boletoExpiresAt! }));
       if (d.pixQrCode && d.pixExpiresAt) setPix((p) => (p?.qrCode === d.pixQrCode ? p : { qrCode: d.pixQrCode!, qrCodeBase64: d.pixQrBase64, expiresAt: d.pixExpiresAt! }));
     }, 5000);
     return () => clearInterval(t);
@@ -115,6 +121,7 @@ export function PaymentPanel({ orderId, initialStatus, totalCents, pixCents, ini
       const r = await pay(orderId, body);
       setStatus(r.status);
       if (r.pix) setPix(r.pix);
+      if (r.boleto) setBoleto(r.boleto);
     } catch (e) {
       setError((e as Error).message);
       if (body.method === "card") throw e; // o Brick mostra o erro e libera nova tentativa
@@ -132,6 +139,9 @@ export function PaymentPanel({ orderId, initialStatus, totalCents, pixCents, ini
         <button type="button" disabled={busy} onClick={() => { setMethod("pix"); if (!pix) void run({ method: "pix" }); }}>
           Pix: {formatBRL(pixCents)}
         </button>
+        <button type="button" disabled={busy} onClick={() => { setMethod("boleto"); if (!boleto) void run({ method: "boleto" }); }}>
+          Boleto: {formatBRL(totalCents)}
+        </button>
         <button type="button" disabled={busy} onClick={() => setMethod("card")}>Cartão: {formatBRL(totalCents)} (até 3x)</button>
       </div>
       {error && <p role="alert">{error}</p>}
@@ -148,6 +158,20 @@ export function PaymentPanel({ orderId, initialStatus, totalCents, pixCents, ini
           <p>Valor: <strong>{formatBRL(pixCents)}</strong>. Pague até {new Date(pix.expiresAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.</p>
         </div>
       ))}
+      {method === "boleto" && boleto && (
+        <div style={{ display: "grid", gap: 8 }}>
+          <p><a href={boleto.url} target="_blank" rel="noopener noreferrer">Abrir o boleto</a></p>
+          {boleto.barcode && (
+            <>
+              <label>Linha digitável:
+                <textarea readOnly value={boleto.barcode} rows={2} style={{ width: "100%" }} onFocus={(e) => e.currentTarget.select()} />
+              </label>
+              <button type="button" onClick={() => navigator.clipboard?.writeText(boleto.barcode).then(() => setCopied(true))}>{copied ? "Copiado!" : "Copiar linha digitável"}</button>
+            </>
+          )}
+          <p>Valor: <strong>{formatBRL(totalCents)}</strong>. Vence em {new Date(boleto.expiresAt).toLocaleDateString("pt-BR")}. A confirmação do pagamento leva até 2 dias úteis; o pedido segue reservado até lá.</p>
+        </div>
+      )}
       {method === "card" && (!config ? <p>Carregando…</p> : config.publicKey ? (
         <CardBrick publicKey={config.publicKey} totalCents={totalCents} onCard={(card) => run({ method: "card", card })} />
       ) : config.fake ? (

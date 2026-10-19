@@ -2,13 +2,18 @@
 export type PaymentStatus = "approved" | "pending" | "rejected" | "cancelled" | "refunded";
 export type Payer = { email: string; cpf: string };
 export type GatewayResult = { id: string; status: PaymentStatus };
+export type BoletoPayer = Payer & {
+  firstName: string; lastName: string;
+  address: { zip: string; street: string; number: string; district: string; city: string; state: string };
+};
+export type BoletoResult = GatewayResult & { url: string; barcode: string; expiresAt: Date };
 export type PixResult = GatewayResult & { qrCode: string; qrCodeBase64: string; expiresAt: Date };
 export type RemotePayment = {
   id: string;
   status: PaymentStatus;
   externalReference: string;
   amountCents: number;
-  /** "credit_card", "debit_card", "bank_transfer" (Pix)... */
+  /** "credit_card", "debit_card", "bank_transfer" (Pix), "ticket" (boleto)... */
   paymentTypeId: string;
 };
 
@@ -18,6 +23,7 @@ export interface PaymentGateway {
     idempotencyKey: string,
   ): Promise<GatewayResult>;
   payPix(input: { orderId: string; amountCents: number; payer: Payer }, idempotencyKey: string): Promise<PixResult>;
+  payBoleto(input: { orderId: string; amountCents: number; payer: BoletoPayer }, idempotencyKey: string): Promise<BoletoResult>;
   getPayment(id: string): Promise<RemotePayment>;
 }
 
@@ -34,5 +40,6 @@ export class PaymentsNotConfiguredError extends Error {
 }
 
 export const PIX_TTL_MS = 30 * 60_000;
+export const BOLETO_TTL_MS = 3 * 24 * 60 * 60_000;
 /** Tipo do Mercado Pago para Pix. */
 export const isPixType = (paymentTypeId: string) => paymentTypeId === "bank_transfer";

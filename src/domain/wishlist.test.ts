@@ -74,13 +74,15 @@ describe("favoritos", () => {
   });
   it("limite de favoritos por cliente; excluir o produto remove o favorito", async () => {
     const p = await mkProduct(S, "a");
-    const ids = [p];
-    for (let i = 0; i < WISHLIST_MAX - 1; i++) ids.push(await mkProduct(S, `x${i}`));
-    for (const id of ids) await addToWishlist(S, cust, id);
+    // semeia direto (200 chamadas serializadas por trava de loja deixariam o teste lento)
+    const bulk = Array.from({ length: WISHLIST_MAX - 1 }, (_, i) => ({ storeId: S, slug: `bulk-${i}-${tag}`, name: `B${i}`, weightGrams: 300, heightCm: 5, widthCm: 20, lengthCm: 30 }));
+    await prisma.product.createMany({ data: bulk });
+    const bulkIds = (await prisma.product.findMany({ where: { storeId: S, slug: { startsWith: "bulk-" } }, select: { id: true } })).map((r) => r.id);
+    await prisma.wishlistItem.createMany({ data: [p, ...bulkIds].map((productId) => ({ storeId: S, customerId: cust, productId })) });
     expect(await code(addToWishlist(S, cust, await mkProduct(S, "extra")))).toBe("WISHLIST_FULL");
     await addToWishlist(S, cust, p); // ja favoritado continua idempotente mesmo cheio
     await prisma.variant.deleteMany({ where: { productId: p } });
     await prisma.product.delete({ where: { id: p } });
     expect(await prisma.wishlistItem.count({ where: { customerId: cust } })).toBe(WISHLIST_MAX - 1);
-  });
+  }, 30_000);
 });

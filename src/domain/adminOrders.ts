@@ -11,7 +11,7 @@ export type AdminOrderCode = "INVALID_TRANSITION" | "REEMBOLSO_MANUAL" | "PAGAME
 const MESSAGES: Record<AdminOrderCode, string> = {
   INVALID_TRANSITION: "Transição de status não permitida para este pedido.",
   REEMBOLSO_MANUAL: "Pedido já pago não pode ser cancelado aqui: faça o reembolso pelo painel do Mercado Pago.",
-  PAGAMENTO_EM_ABERTO: "Há um pagamento em andamento (Pix vigente ou cartão em análise). Aguarde o vencimento: o pedido é cancelado automaticamente se não for pago.",
+  PAGAMENTO_EM_ABERTO: "Há um pagamento em andamento (Pix vigente, boleto ou cartão em análise). Aguarde o vencimento: o pedido é cancelado automaticamente se não for pago.",
 };
 export class AdminOrderError extends Error {
   name = "AdminOrderError";
@@ -112,7 +112,7 @@ export async function getOrderDetail(storeId: string, orderId: string) {
   });
   if (!o) return null;
   const { paymentMethod, ...rest } = o;
-  return { ...rest, paymentMethod: paymentMethod === "pix" ? ("Pix" as const) : paymentMethod === "card" ? ("Cartão" as const) : null };
+  return { ...rest, paymentMethod: paymentMethod === "pix" ? ("Pix" as const) : paymentMethod === "card" ? ("Cartão" as const) : paymentMethod === "boleto" ? ("Boleto" as const) : null };
 }
 
 export async function listCustomers(storeId: string, query: { page?: number; q?: string }) {

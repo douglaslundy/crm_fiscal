@@ -13,6 +13,7 @@ const payLimiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 // Zod remove chaves desconhecidas: valor/total enviados pelo navegador nunca chegam a payOrder. Cartao = so o token do Brick.
 const Body = z.discriminatedUnion("method", [
   z.object({ orderId: z.string().min(1).max(64), method: z.literal("pix") }),
+  z.object({ orderId: z.string().min(1).max(64), method: z.literal("boleto") }),
   z.object({
     orderId: z.string().min(1).max(64),
     method: z.literal("card"),
@@ -25,10 +26,12 @@ const ERRORS: Record<PayErrorCode, [number, string]> = {
   NOT_PENDING: [409, "PEDIDO_NAO_PENDENTE"],
   PIX_EXPIRED: [409, "PIX_EXPIRADO"],
   PIX_LIVE: [409, "PIX_EM_ANDAMENTO"],
+  BOLETO_EXPIRED: [409, "BOLETO_EXPIRADO"],
+  BOLETO_LIVE: [409, "BOLETO_EM_ANDAMENTO"],
   REJECTED: [402, "PAGAMENTO_RECUSADO"],
 };
 
-/** Paga (cartao ou Pix) um pedido do cliente logado nesta loja. Valor sempre do pedido no servidor. */
+/** Paga (cartao, Pix ou boleto) um pedido do cliente logado nesta loja. Valor sempre do pedido no servidor. */
 export async function POST(req: Request) {
   const ctx = await denyUnlessCustomer(req);
   if (ctx instanceof NextResponse) return ctx;
