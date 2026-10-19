@@ -29,7 +29,7 @@ export default async function ClientesPage({ searchParams }: { searchParams: Pro
           <thead><tr><th>Nome</th><th>E-mail</th><th>Pedidos</th><th>Total gasto</th></tr></thead>
           <tbody>
             {items.map((c) => (
-              <tr key={c.id}><td>{c.name}</td><td>{c.email}</td><td>{c.orderCount}</td><td>{formatBRL(c.totalSpentCents)}</td></tr>
+              <tr key={c.id}><td><Link href={`/admin/clientes/${c.id}`}>{c.name}</Link></td><td>{c.email}</td><td>{c.orderCount}</td><td>{formatBRL(c.totalSpentCents)}</td></tr>
             ))}
           </tbody>
         </table>

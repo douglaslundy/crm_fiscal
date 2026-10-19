@@ -96,9 +96,9 @@ export function PaymentPanel({ orderId, initialStatus, totalCents, pixCents, ini
     const t = setInterval(async () => {
       const r = await fetch(`/api/checkout/order/${encodeURIComponent(orderId)}/status`).catch(() => null);
       if (!r?.ok) return;
-      const d = (await r.json()) as { status: OrderStatus; pixQrCode: string | null; pixExpiresAt: string | null };
+      const d = (await r.json()) as { status: OrderStatus; pixQrCode: string | null; pixQrBase64: string | null; pixExpiresAt: string | null };
       setStatus(d.status);
-      if (d.pixQrCode && d.pixExpiresAt) setPix((p) => (p?.qrCode === d.pixQrCode ? p : { qrCode: d.pixQrCode!, qrCodeBase64: null, expiresAt: d.pixExpiresAt! }));
+      if (d.pixQrCode && d.pixExpiresAt) setPix((p) => (p?.qrCode === d.pixQrCode ? p : { qrCode: d.pixQrCode!, qrCodeBase64: d.pixQrBase64, expiresAt: d.pixExpiresAt! }));
     }, 5000);
     return () => clearInterval(t);
   }, [orderId, status]);

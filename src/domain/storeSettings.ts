@@ -4,7 +4,8 @@ import { normalizeCep } from "./cep";
 
 export type SettingsErrorCode =
   | "CEP_INVALID" | "PIX_DISCOUNT_INVALID" | "ACCOUNT_NOT_FOUND" | "ALREADY_MEMBER" | "MEMBER_NOT_FOUND"
-  | "CANNOT_REMOVE_OWNER" | "CANNOT_REMOVE_SELF" | "DOMAIN_INVALID" | "DOMAIN_TAKEN" | "DOMAIN_NOT_FOUND";
+  | "CANNOT_REMOVE_OWNER" | "CANNOT_REMOVE_SELF" | "DOMAIN_INVALID" | "DOMAIN_TAKEN" | "DOMAIN_NOT_FOUND"
+  | "INVITE_NOT_FOUND" | "INVITE_INVALID";
 
 /** Erro das telas de configuracao (configuracoes, credenciais, equipe, dominio); vira resposta em domainError. */
 export class SettingsError extends Error {

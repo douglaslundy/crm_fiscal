@@ -2,10 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { STORE_HOST_HEADER, isPlatformHost, normalizeHost, platformDomain } from "@/lib/host";
 import { storefrontPath } from "@/lib/storefront-routes";
 
-// Sem banco (edge): so classifica o host. Loja -> header x-store-host para getCurrentStore();
+// Sem banco: so classifica o host. Loja -> header x-store-host para getCurrentStore();
 // plataforma -> segue sem o header. Host desconhecido vira 404 neutro em getCurrentStore().
 // Loja: caminhos publicos ("/", /c/*, /p/*, /buscar, /carrinho, /checkout, /pedido/<id>) sao reescritos para /vitrine/* (a "/" fisica e da plataforma).
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const headers = new Headers(req.headers);
   headers.delete(STORE_HOST_HEADER); // valor vindo do cliente nunca e confiavel
   const host = normalizeHost(req.headers.get("host"));

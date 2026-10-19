@@ -23,7 +23,7 @@ export default async function OrderPage({ params }: Props) {
   const db = dbForStore(store.id);
   const order = await db.order.findFirst({
     where: { id, customerId },
-    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, pixQrCode: true, pixExpiresAt: true },
+    select: { id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true },
   });
   if (!order) notFound();
   const items = await db.orderItem.findMany({ where: { orderId: order.id }, select: { id: true, productName: true, color: true, size: true, quantity: true, unitPriceCents: true } });
@@ -48,7 +48,7 @@ export default async function OrderPage({ params }: Props) {
         initialStatus={order.status}
         totalCents={order.totalCents}
         pixCents={pixCents}
-        initialPix={order.pixQrCode && order.pixExpiresAt ? { qrCode: order.pixQrCode, qrCodeBase64: null, expiresAt: order.pixExpiresAt.toISOString() } : null}
+        initialPix={order.pixQrCode && order.pixExpiresAt ? { qrCode: order.pixQrCode, qrCodeBase64: order.pixQrBase64, expiresAt: order.pixExpiresAt.toISOString() } : null}
       />
       <Link href="/">Continuar comprando</Link>
     </main>

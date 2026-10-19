@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { middleware } from "./middleware";
+import { proxy } from "./proxy";
 
 const call = (url: string, host: string, extra: Record<string, string> = {}) =>
-  middleware(new NextRequest(url, { headers: { host, ...extra } }));
+  proxy(new NextRequest(url, { headers: { host, ...extra } }));
 const run = (host: string, extra: Record<string, string> = {}) => call("http://x/", host, extra).headers;
 
-describe("middleware", () => {
+describe("proxy", () => {
   it("encaminha host de loja normalizado", () => {
     process.env.PLATFORM_DOMAIN = "plataforma.test";
     expect(run("Demo.Plataforma.test:3000").get("x-middleware-request-x-store-host")).toBe("demo.plataforma.test");

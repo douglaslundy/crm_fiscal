@@ -32,6 +32,7 @@ const settings = await import("./settings/route");
 const credentials = await import("./credentials/route");
 const team = await import("./team/route");
 const teamId = await import("./team/[id]/route");
+const teamInvite = await import("./team/invites/[id]/route");
 const exportCsv = await import("./export/route");
 const domain = await import("./domain/route");
 const domainVerify = await import("./domain/verify/route");
@@ -55,6 +56,7 @@ let ownerA: Session;
 let staffA: Session;
 let staffAId: string;
 let inviteEmail: string;
+let inviteIdA: string;
 let ownerB: Session;
 let master: Session;
 let customer: Session;
@@ -80,6 +82,7 @@ beforeEach(async () => {
   storeA = await mk("a", [{ accountId: oa, role: "OWNER" }, { accountId: sa, role: "STAFF" }]);
   storeB = await mk("b", [{ accountId: ob, role: "OWNER" }]);
   staffAId = sa;
+  inviteIdA = (await prisma.storeInvite.create({ data: { storeId: storeA, email: `pend-${tag}@t.local`, tokenHash: `h-${tag}`, expiresAt: new Date(Date.now() + 86_400_000) } })).id;
   await acc("inv");
   inviteEmail = `inv-${tag}@t.local`;
   await prisma.storeDomain.create({ data: { storeId: storeA, host: `dom-${tag}.com.br` } });
@@ -150,6 +153,7 @@ const cases: Case[] = [
   { route: "credentials", method: "PATCH", handler: credentials.PATCH as Handler, ok: 200, ownerOnly: true, body: () => ({ mpAccessToken: "APP_USR-segredo-tabela-1234" }) },
   { route: "team", method: "GET", handler: team.GET as Handler, ok: 200, ownerOnly: true },
   { route: "team", method: "POST", handler: team.POST as Handler, ok: 201, ownerOnly: true, body: () => ({ email: inviteEmail }) },
+  { route: "team/invites/[id]", method: "DELETE", handler: teamInvite.DELETE as Handler, id: () => inviteIdA, ok: 200, ownerOnly: true },
   { route: "team/[id]", method: "DELETE", handler: teamId.DELETE as Handler, id: () => staffAId, ok: 200, ownerOnly: true },
   { route: "export", method: "GET", handler: exportCsv.GET as Handler, ok: 200 },
   { route: "domain", method: "GET", handler: domain.GET as Handler, ok: 200, ownerOnly: true },
@@ -508,10 +512,11 @@ describe("/api/admin: configuracoes, credenciais, equipe e dominio", () => {
     expect(await (await send("settings", "GET")).json()).toEqual({ originCep: "01310100", pixDiscountPercent: 0 });
     expect(await prisma.storeSetting.count({ where: { storeId: storeB } })).toBe(0);
   });
-  it("equipe: conta inexistente 404 com mensagem; ja membro 409; limite 403; remover dono 400", async () => {
+  it("equipe: e-mail sem conta gera convite com link; ja membro 409; limite 403; remover dono 400", async () => {
     getSession.mockResolvedValue(ownerA);
     const r = await send("team", "POST", { email: `ninguem-${tag}@t.local` });
-    expect([r.status, await r.json()]).toEqual([404, { error: "ACCOUNT_NOT_FOUND", message: "O usuário precisa se cadastrar primeiro" }]);
+    expect(r.status).toBe(201);
+    expect((await r.json()).inviteUrl).toMatch(/\/convite\/[\w-]{40,}$/);
     expect(await res(send("team", "POST", { email: `sa-${tag}@t.local` }))).toEqual([409, "ALREADY_MEMBER"]);
     await prisma.plan.update({ where: { id: planId }, data: { staffLimit: 2 } });
     expect(await res(send("team", "POST", { email: inviteEmail }))).toEqual([403, "PLAN_LIMIT"]);

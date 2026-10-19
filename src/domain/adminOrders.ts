@@ -99,20 +99,20 @@ export async function listOrders(storeId: string, query: OrderQuery) {
   return { items, total, page, pageSize: ORDER_PAGE_SIZE };
 }
 
-/** Detalhe sem segredos (mpPaymentId e pixQrCode ficam de fora; so o tipo de pagamento derivado). */
+/** Detalhe sem segredos (mpPaymentId e pixQrCode ficam de fora; so a forma de pagamento). */
 export async function getOrderDetail(storeId: string, orderId: string) {
   const o = await dbForStore(storeId).order.findFirst({
     where: { id: orderId },
     select: {
       id: true, status: true, subtotalCents: true, shippingCents: true, totalCents: true, shippingService: true, trackingCode: true,
-      addressSnapshot: true, createdAt: true, pixQrCode: true, mpPaymentId: true,
+      addressSnapshot: true, createdAt: true, paymentMethod: true,
       customer: { select: { id: true, name: true, email: true, phone: true } },
       items: { select: { id: true, productName: true, sku: true, color: true, size: true, unitPriceCents: true, quantity: true }, orderBy: { id: "asc" } },
     },
   });
   if (!o) return null;
-  const { pixQrCode, mpPaymentId, ...rest } = o;
-  return { ...rest, paymentMethod: pixQrCode ? ("Pix" as const) : mpPaymentId ? ("Cartão" as const) : null };
+  const { paymentMethod, ...rest } = o;
+  return { ...rest, paymentMethod: paymentMethod === "pix" ? ("Pix" as const) : paymentMethod === "card" ? ("Cartão" as const) : null };
 }
 
 export async function listCustomers(storeId: string, query: { page?: number; q?: string }) {
@@ -137,4 +137,16 @@ export async function listCustomers(storeId: string, query: { page?: number; q?:
     };
   });
   return { items, total, page, pageSize: ORDER_PAGE_SIZE };
+}
+
+/** Ficha do cliente: dados de contato, enderecos e ultimos 50 pedidos. Sem CPF nem hash de senha. */
+export async function getCustomerDetail(storeId: string, customerId: string) {
+  const db = dbForStore(storeId);
+  const c = await db.customer.findFirst({ where: { id: customerId }, select: { id: true, name: true, email: true, phone: true, createdAt: true } });
+  if (!c) return null;
+  const [addresses, orders] = await Promise.all([
+    db.address.findMany({ where: { customerId }, select: { id: true, cep: true, street: true, number: true, complement: true, district: true, city: true, state: true }, orderBy: { id: "asc" } }),
+    db.order.findMany({ where: { customerId }, select: { id: true, status: true, totalCents: true, createdAt: true }, orderBy: [{ createdAt: "desc" }, { id: "asc" }], take: 50 }),
+  ]);
+  return { ...c, addresses, orders };
 }

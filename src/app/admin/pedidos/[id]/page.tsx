@@ -27,7 +27,7 @@ export default async function PedidoPage({ params }: { params: Promise<{ id: str
         Pagamento: {o.paymentMethod ?? "não iniciado"} ({STATUS_LABEL[o.status]}).
       </p>
       <h2>Cliente</h2>
-      <p>{o.customer.name}, {o.customer.email}, {o.customer.phone}</p>
+      <p><Link href={`/admin/clientes/${o.customer.id}`}>{o.customer.name}</Link>, {o.customer.email}, {o.customer.phone}</p>
       <h2>Entrega ({o.shippingService})</h2>
       <p>{a.street}, {a.number}{a.complement ? `, ${a.complement}` : ""} - {a.district}, {a.city}/{a.state}, CEP {a.cep}</p>
       <h2>Itens</h2>

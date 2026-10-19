@@ -166,7 +166,7 @@ describe("GET /api/checkout/order/[id]/status", () => {
     const o = await mkOrder(A.id, custA);
     const get = (id: string) => status.GET(req(A, `/api/checkout/order/${id}/status`, "GET"), { params: Promise.resolve({ id }) });
     login(custA, A.id);
-    expect(await (await get(o.id)).json()).toEqual({ status: "PENDING_PAYMENT", pixQrCode: null, pixExpiresAt: null });
+    expect(await (await get(o.id)).json()).toEqual({ status: "PENDING_PAYMENT", pixQrCode: null, pixQrBase64: null, pixExpiresAt: null });
     const other = await mkOrder(A.id, await mkCustomer(A.id, "x"));
     expect((await get(other.id)).status).toBe(404);
     login(null);

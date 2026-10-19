@@ -1,7 +1,8 @@
 import { MasterForm } from "@/components/master-form";
 import { cnameTarget, getDomain } from "@/domain/customDomain";
 import { CREDENTIAL_FIELDS, MAX_PIX_DISCOUNT, getCredentialStatus, getSettings, type CredentialField } from "@/domain/storeSettings";
-import { listTeam } from "@/domain/team";
+import { listInvites, listTeam } from "@/domain/team";
+import { InviteForm } from "@/components/invite-form";
 import { adminPage } from "@/lib/admin-api";
 import { prisma } from "@/lib/db";
 
@@ -47,7 +48,7 @@ export default async function ConfiguracoesPage() {
 }
 
 async function OwnerSections(p: { storeId: string; accountId: string; readOnly: boolean; customDomain: boolean }) {
-  const [creds, team, domain] = await Promise.all([getCredentialStatus(p.storeId), listTeam(p.storeId), getDomain(p.storeId)]);
+  const [creds, team, domain, invites] = await Promise.all([getCredentialStatus(p.storeId), listTeam(p.storeId), getDomain(p.storeId), listInvites(p.storeId)]);
   const status = (f: CredentialField) => creds[f].configured ? `configurado${creds[f].last4 ? ` ••••${creds[f].last4}` : ""}` : "não configurado";
 
   return (
@@ -79,10 +80,23 @@ async function OwnerSections(p: { storeId: string; accountId: string; readOnly: 
             </li>
           ))}
         </ul>
+        {invites.length > 0 && (
+          <>
+            <h3>Convites pendentes</h3>
+            <ul>
+              {invites.map((i) => (
+                <li key={i.id}>
+                  {i.email} (vence em {i.expiresAt.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })})
+                  {!p.readOnly && <MasterForm url={`/api/admin/team/invites/${i.id}`} method="DELETE" submit="Cancelar convite" confirm={`Cancelar o convite de ${i.email}?`} />}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         {!p.readOnly && (
           <>
-            <p>O usuário precisa já ter cadastro na plataforma.</p>
-            <MasterForm url="/api/admin/team" submit="Adicionar à equipe" fields={[{ name: "email", label: "E-mail", type: "email", required: true }]} />
+            <p>Quem já tem cadastro entra direto; e-mail novo recebe um link de convite.</p>
+            <InviteForm />
           </>
         )}
       </section>

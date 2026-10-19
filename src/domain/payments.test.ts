@@ -80,6 +80,20 @@ describe("payOrder", () => {
     expect(fake.payments.get(db.mpPaymentId!)).toMatchObject({ amountCents: 10001, externalReference: o.id });
   });
 
+  it("grava a forma de pagamento (cartao aprovado e pendente) e o QR em base64 do Pix para reexibir", async () => {
+    const ok = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: ok.id, method: "card", card: card("approved") }, fake);
+    expect((await order(ok.id)).paymentMethod).toBe("card");
+    const pend = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: pend.id, method: "card", card: card("pending") }, fake);
+    expect((await order(pend.id)).paymentMethod).toBe("card");
+    const gw: PaymentGateway = { payCard: (...a) => fake.payCard(...a), getPayment: (...a) => fake.getPayment(...a), payPix: async (...a) => ({ ...(await fake.payPix(...a)), qrCodeBase64: "PNGDATA" }) };
+    const px = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: px.id, method: "pix" }, gw);
+    expect(await order(px.id)).toMatchObject({ paymentMethod: "pix", pixQrBase64: "PNGDATA" });
+    const again = await payOrder({ storeId: S, customerId: cust, orderId: px.id, method: "pix" }, gw);
+    expect(again.pix!.qrCodeBase64).toBe("PNGDATA"); // apos recarregar a pagina o QR ainda vem
+  });
   it("cartao recusado -> REJECTED, pedido segue aguardando e o id recusado nao vira o pagamento atual; outro cartao paga", async () => {
     const o = await mkOrder(S, cust);
     await expect(payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "card", card: card("rejected") }, fake))
