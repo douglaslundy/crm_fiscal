@@ -12,8 +12,8 @@ const FIELDS: [name: keyof Omit<Address, "id">, label: string, max: number, requ
   ["district", "Bairro", 80, true], ["city", "Cidade", 80, true], ["state", "UF", 2, true],
 ];
 
-/** Novo endereco do cliente logado (POST /api/checkout/address). */
-export function AddressForm({ onCreated }: { onCreated: (a: Address) => void }) {
+/** Novo endereco (POST /api/checkout/address) ou, com `address`, edicao (PATCH /api/checkout/address/<id>). */
+export function AddressForm({ onCreated, address }: { onCreated: (a: Address) => void; address?: Address }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,10 +22,10 @@ export function AddressForm({ onCreated }: { onCreated: (a: Address) => void }) 
     const form = e.currentTarget;
     setBusy(true); setError(null);
     try {
-      const r = await fetch("/api/checkout/address", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(form))),
+      const r = await fetch(address ? `/api/checkout/address/${address.id}` : "/api/checkout/address", {
+        method: address ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.fromEntries(new FormData(form))),
       });
-      if (r.ok) { form.reset(); onCreated(await r.json()); }
+      if (r.ok) { if (!address) form.reset(); onCreated(await r.json()); }
       else setError(r.status === 400 ? "Confira os dados do endereço (CEP e UF com 2 letras)." : "Não foi possível salvar o endereço.");
     } catch {
       setError("Não foi possível salvar o endereço.");
@@ -38,7 +38,7 @@ export function AddressForm({ onCreated }: { onCreated: (a: Address) => void }) 
     <form onSubmit={submit} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
       {FIELDS.map(([name, label, max, required]) => (
         <label key={name} style={{ display: "grid" }}>{label}
-          <input name={name} maxLength={max} required={required} />
+          <input name={name} maxLength={max} required={required} defaultValue={address?.[name] ?? ""} />
         </label>
       ))}
       {error && <p role="alert">{error}</p>}

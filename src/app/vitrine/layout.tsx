@@ -26,6 +26,7 @@ export default async function VitrineLayout({ children }: { children: ReactNode 
               <button type="submit">Buscar</button>
             </form>
           )}
+          {isStoreOpen(store) && <Link href="/conta">Minha conta</Link>}
           {isStoreOpen(store) && <CartLink />}
         </div>
         {menu.length > 0 && (
