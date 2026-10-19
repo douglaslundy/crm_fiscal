@@ -19,6 +19,7 @@ const PAY_ERRORS: Record<string, string> = {
   PEDIDO_NAO_PENDENTE: "Este pedido não está mais aguardando pagamento.",
   PIX_EXPIRADO: "O Pix expirou. Faça um novo pedido.",
   PIX_EM_ANDAMENTO: "Você já gerou um Pix para este pedido. Pague por ele ou aguarde o vencimento.",
+  CARTAO_EM_ANALISE: "Seu cartão está em análise para este pedido. Aguarde a confirmação.",
   BOLETO_EXPIRADO: "O boleto venceu. Faça um novo pedido.",
   BOLETO_EM_ANDAMENTO: "Você já gerou um boleto para este pedido. Pague por ele ou aguarde o vencimento.",
   MUITAS_REQUISICOES: "Muitas tentativas. Aguarde um minuto.",

@@ -29,11 +29,11 @@ export function discountFor(c: Pick<Coupon, "kind" | "value">, subtotalCents: nu
  * Confere o cupom para este cliente e subtotal. Cupom desconhecido, inativo, fora da janela ou de outra loja = COUPON_INVALID
  * (mesma resposta, sem revelar quais codigos existem). Cada cliente usa o cupom uma vez (pedido cancelado libera).
  */
-export async function validateCoupon(db: Db, rawCode: string, customerId: string, subtotalCents: number, now = new Date()) {
+export async function validateCoupon(db: Db, rawCode: string, customerId: string, subtotalCents: number, now = new Date(), usageAlreadyTaken = false) {
   const code = normalizeCode(rawCode);
   const c = CODE_RE.test(code) ? await db.coupon.findFirst({ where: { code } }) : null;
   if (!c || !c.active || (c.startsAt && c.startsAt > now) || (c.expiresAt && c.expiresAt <= now)) throw new CouponError(400, "COUPON_INVALID");
-  if (c.maxUses !== null && c.usedCount >= c.maxUses) throw new CouponError(409, "COUPON_EXHAUSTED");
+  if (!usageAlreadyTaken && c.maxUses !== null && c.usedCount >= c.maxUses) throw new CouponError(409, "COUPON_EXHAUSTED");
   if (subtotalCents < c.minSubtotalCents) throw new CouponError(409, "COUPON_MIN_SUBTOTAL", { minSubtotalCents: c.minSubtotalCents });
   if (await db.order.count({ where: { couponId: c.id, customerId, status: { not: "CANCELED" } } }) > 0) throw new CouponError(409, "COUPON_ALREADY_USED");
   return { coupon: c, discountCents: discountFor(c, subtotalCents) };

@@ -86,6 +86,13 @@ describe("cupom no pedido", () => {
     await cancelOrder(S, o.id);
     expect((await couponRow(S)).usedCount).toBe(1);
   });
+  it("mesmo cliente, pedidos simultaneos (chaves diferentes): so um leva o cupom", async () => {
+    await createCoupon(S, base());
+    const results = await Promise.all([1, 2, 3, 4].map(() => code(buy("PROMO10"))));
+    expect(results.filter((r) => r === "ok")).toHaveLength(1);
+    expect((await couponRow(S)).usedCount).toBe(1);
+    expect(await prisma.order.count({ where: { storeId: S, couponCode: "PROMO10" } })).toBe(1);
+  });
   it("limite de usos: concorrencia com 1 uso restante, so um pedido passa", async () => {
     await createCoupon(S, base({ maxUses: 1 }));
     const customers = await Promise.all(["x1", "x2", "x3"].map((k) => mkCustomer(S, k)));

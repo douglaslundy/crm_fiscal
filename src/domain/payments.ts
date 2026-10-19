@@ -75,7 +75,7 @@ export async function syncPayment(storeId: string, paymentId: string, gw: Paymen
   return applyPaymentUpdate(storeId, order.id, p.status, p.id);
 }
 
-export type PayErrorCode = "NOT_FOUND" | "NOT_PENDING" | "PIX_EXPIRED" | "PIX_LIVE" | "BOLETO_EXPIRED" | "BOLETO_LIVE" | "REJECTED";
+export type PayErrorCode = "NOT_FOUND" | "NOT_PENDING" | "PIX_EXPIRED" | "PIX_LIVE" | "BOLETO_EXPIRED" | "BOLETO_LIVE" | "CARD_IN_PROGRESS" | "REJECTED";
 export class PayError extends Error {
   name = "PayError";
   constructor(readonly code: PayErrorCode) { super(code); }
@@ -106,7 +106,7 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
     where: { id: orderId, customerId },
     select: {
       id: true, status: true, totalCents: true, pixQrCode: true, pixQrBase64: true, pixExpiresAt: true, pixAmountCents: true,
-      boletoUrl: true, boletoBarcode: true, boletoExpiresAt: true, addressSnapshot: true,
+      boletoUrl: true, boletoBarcode: true, boletoExpiresAt: true, addressSnapshot: true, paymentMethod: true, mpPaymentId: true,
     },
   });
   if (!order) throw new PayError("NOT_FOUND");
@@ -115,7 +115,8 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
   const payer = { email: customer.email, cpf: customer.cpf };
   const pending = { id: orderId, status: "PENDING_PAYMENT" as const };
 
-  const boletoLive = !!order.boletoExpiresAt && order.boletoExpiresAt > now;
+  // vivo = ate o fim da carencia: o boleto pago no ultimo dia ainda compensa, entao nada novo pode ser cobrado nesse periodo
+  const boletoLive = !!order.boletoExpiresAt && order.boletoExpiresAt.getTime() + BOLETO_GRACE_MS > now.getTime();
 
   if (input.method === "boleto") {
     if (order.boletoUrl && order.boletoExpiresAt) {
@@ -123,6 +124,7 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
       return { status: order.status, boleto: { url: order.boletoUrl, barcode: order.boletoBarcode ?? "", expiresAt: order.boletoExpiresAt, amountCents: order.totalCents } };
     }
     if (order.pixExpiresAt && order.pixExpiresAt > now) throw new PayError("PIX_LIVE");
+    if (order.paymentMethod === "card" && order.mpPaymentId) throw new PayError("CARD_IN_PROGRESS"); // cartao em analise ainda pode aprovar
     const a = order.addressSnapshot as { cep: string; street: string; number: string; district: string; city: string; state: string };
     const [firstName, ...rest] = customer.name.trim().split(/\s+/);
     const boletoPayer: BoletoPayer = {
@@ -177,7 +179,7 @@ export async function payOrder(input: PayInput, gw: PaymentGateway, now = new Da
 }
 
 const EXPIRE_BATCH = 200;
-const BOLETO_GRACE_MS = 24 * 60 * 60_000;
+const BOLETO_GRACE_MS = 5 * 24 * 60 * 60_000; // compensacao do boleto pago no ultimo dia leva ate 3 dias uteis
 const UNPAID_TTL_MS = 60 * 60_000;
 const CARD_PENDING_TTL_MS = 72 * 60 * 60_000; // cartao em analise: reserva o estoque ate 72 h da criacao do pedido
 
@@ -195,7 +197,7 @@ export async function expireOrders(now: Date, deps: { gatewayFor?: (storeId: str
     status: "PENDING_PAYMENT" as const,
     OR: [
       { pixExpiresAt: { lt: now } },
-      // boleto: vence em 3 dias e a compensacao chega ate 1 dia depois; so entao o pedido e conferido/cancelado
+      // boleto: vence em 3 dias e a compensacao chega ate 5 dias corridos depois; so entao o pedido e conferido/cancelado
       { boletoExpiresAt: { lt: new Date(now.getTime() - BOLETO_GRACE_MS) } },
       { pixExpiresAt: null, boletoExpiresAt: null, createdAt: { lt: new Date(now.getTime() - UNPAID_TTL_MS) } },
     ],

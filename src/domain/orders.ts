@@ -108,9 +108,10 @@ export async function createOrder(
     // cupom relido na transacao: mudou desde a cotacao = total novo (cliente confirma) ou erro do cupom
     let coupon = null;
     if (input.couponCode) {
-      const v = await validateCoupon(tx, input.couponCode, customerId, fresh.subtotalCents);
+      // consome primeiro: o UPDATE trava a linha do cupom, e pedidos simultaneos do mesmo cliente passam um de cada vez pela conferencia abaixo
+      await redeemCoupon(tx, quotedCoupon!.coupon);
+      const v = await validateCoupon(tx, input.couponCode, customerId, fresh.subtotalCents, new Date(), true);
       if (v.discountCents !== discountCents) throw new TotalChangedError(fresh.subtotalCents - v.discountCents + shipping.priceCents);
-      await redeemCoupon(tx, v.coupon);
       coupon = v.coupon;
     }
 

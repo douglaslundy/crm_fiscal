@@ -412,6 +412,16 @@ describe("boleto", () => {
     await payOrder({ storeId: S, customerId: cust, orderId: p.id, method: "pix" }, fake);
     await expect(payOrder({ storeId: S, customerId: cust, orderId: p.id, method: "boleto" }, fake)).rejects.toMatchObject({ code: "PIX_LIVE" });
   });
+  it("boleto vencido mas na carencia ainda bloqueia Pix/cartao (pode compensar); cartao em analise bloqueia boleto", async () => {
+    const o = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "boleto" }, fake);
+    const later = new Date(Date.now() + 4 * DAY); // venceu ontem
+    await expect(payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "pix" }, fake, later)).rejects.toMatchObject({ code: "BOLETO_LIVE" });
+    await expect(payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "card", card: card("approved") }, fake, later)).rejects.toMatchObject({ code: "BOLETO_LIVE" });
+    const c = await mkOrder(S, cust);
+    await payOrder({ storeId: S, customerId: cust, orderId: c.id, method: "card", card: card("pending") }, fake);
+    await expect(payOrder({ storeId: S, customerId: cust, orderId: c.id, method: "boleto" }, fake)).rejects.toMatchObject({ code: "CARD_IN_PROGRESS" });
+  });
   it("Pix vencido + boleto: o Pix antigo sai de cena (o cron nao cancela no vencimento dele)", async () => {
     const o = await mkOrder(S, cust, { pixExpiresAt: new Date(Date.now() - 60_000) });
     await payOrder({ storeId: S, customerId: cust, orderId: o.id, method: "boleto" }, fake);
@@ -432,17 +442,17 @@ describe("boleto", () => {
     expect((await order(b.id)).status).toBe("PENDING_PAYMENT");
     expect(spy).toHaveBeenCalled();
   });
-  it("cron: boleto vigente e boleto vencido ha menos de 1 dia seguem reservados; vencido ha mais de 1 dia e nao pago cancela e devolve estoque; pago no gateway vira PAID", async () => {
+  it("cron: boleto vigente e boleto vencido na carencia (5 dias) seguem reservados; passada a carencia e nao pago cancela e devolve estoque; pago no gateway vira PAID", async () => {
     const now = new Date();
     const mk = async (expiresAt: Date, k: string) => {
-      const o = await mkOrder(S, cust, { createdAt: new Date(now.getTime() - 6 * DAY), mpPaymentId: `bol-${k}-${tag}` });
+      const o = await mkOrder(S, cust, { createdAt: new Date(now.getTime() - 12 * DAY), mpPaymentId: `bol-${k}-${tag}` });
       await prisma.order.update({ where: { id: o.id }, data: { pixExpiresAt: null, pixQrCode: null, paymentMethod: "boleto", boletoUrl: "https://x", boletoExpiresAt: expiresAt } });
       return o;
     };
     const live = await mk(new Date(now.getTime() + DAY), "live");
-    const grace = await mk(new Date(now.getTime() - DAY / 2), "grace");
-    const dead = await mk(new Date(now.getTime() - 2 * DAY), "dead");
-    const paid = await mk(new Date(now.getTime() - 2 * DAY), "paid");
+    const grace = await mk(new Date(now.getTime() - 4 * DAY), "grace"); // vencido, ainda na carencia de 5 dias
+    const dead = await mk(new Date(now.getTime() - 6 * DAY), "dead");
+    const paid = await mk(new Date(now.getTime() - 6 * DAY), "paid");
     remote(`bol-dead-${tag}`, dead.id, "pending", 10001, "ticket");
     remote(`bol-paid-${tag}`, paid.id, "approved", 10001, "ticket");
     await expireOrders(now);
