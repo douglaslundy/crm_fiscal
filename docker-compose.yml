@@ -1,0 +1,28 @@
+# Deploy em VPS: copie .env.example para .env, preencha e rode `docker compose up -d --build`.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ecomerce
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ecomerce
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecomerce"]
+      interval: 5s
+      retries: 10
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://ecomerce:${DB_PASSWORD}@db:5432/ecomerce
+    ports:
+      - "${APP_PORT:-3500}:3000"
+volumes:
+  dbdata:
