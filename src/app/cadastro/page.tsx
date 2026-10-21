@@ -9,7 +9,7 @@ export default async function CadastroPage({ searchParams }: Props) {
   const store = await getCurrentStore(); // 404 fora do host de uma loja
   const next = safeNext((await searchParams).next, "/");
   return (
-    <main>
+    <main className="narrow">
       <h1>Criar conta em {store.name}</h1>
       <RegisterForm next={next} />
       <p>

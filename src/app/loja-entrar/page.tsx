@@ -10,7 +10,7 @@ export default async function LojaEntrarPage({ searchParams }: Props) {
   const sp = await searchParams;
   const next = safeNext(sp.next, "/");
   return (
-    <main>
+    <main className="narrow">
       <h1>Entrar em {store.name}</h1>
       {sp.aviso === "cadastro" && <p role="status">Cadastro criado, mas não foi possível entrar. Faça login.</p>}
       <LoginForm provider="customer" next={next} />

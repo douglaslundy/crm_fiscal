@@ -6,7 +6,7 @@ type Props = { searchParams: Promise<{ next?: string | string[] }> };
 export default async function EntrarPage({ searchParams }: Props) {
   const { next } = await searchParams;
   return (
-    <main>
+    <main className="narrow">
       <h1>Entrar na plataforma</h1>
       <LoginForm provider="account" next={safeNext(next, "/")} />
     </main>

@@ -21,7 +21,7 @@ export default async function ComecarPage() {
     ].filter(Boolean).join(", "),
   }));
   return (
-    <main>
+    <main className="narrow">
       <h1>Crie sua loja</h1>
       <p>14 dias grátis, sem cartão.</p>
       <SignupForm plans={options} />

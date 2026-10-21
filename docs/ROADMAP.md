@@ -3,10 +3,10 @@
 Registrado em 2026-10-21. Marque `[x]` ao concluir.
 
 ## Desenvolvimento
-- [ ] Design system (CSS global + tokens) e layout base
-- [ ] Vitrine: header, grade, produto com galeria, carrinho, checkout, conta, pedidos
-- [ ] Painel do dono (admin) e painel do master
-- [ ] Home da plataforma, cadastro, login; favicon e imagens padrao
+- [x] Design system (CSS global + tokens) e layout base
+- [~] Vitrine (header, grade, cards prontos; refinar produto, carrinho, checkout, conta): header, grade, produto com galeria, carrinho, checkout, conta, pedidos
+- [x] Painel do dono (admin) e painel do master (shell e tabelas; refinar formularios)
+- [~] Home da plataforma, cadastro, login (feitos); favicon e imagens padrao (falta)
 - [ ] Teste visual no navegador (desktop e celular) de todas as telas
 - [ ] E-mail transacional: pedido, recuperacao de senha, verificacao, convite
 - [ ] Paginas legais: termos e privacidade (LGPD)

@@ -19,48 +19,47 @@ export default async function VitrineLayout({ children }: { children: ReactNode 
   const store = await getCurrentStore();
   const [menu, collections] = isStoreOpen(store) ? await Promise.all([getMenu(store.id), getActiveCollections(store.id)]) : [[], []];
   const theme = await getTheme(store.id);
+  const open = isStoreOpen(store);
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 16px", ...(theme.primaryColor ? ({ "--primary": theme.primaryColor, "--on-primary": textOn(theme.primaryColor) } as CSSProperties) : {}) }}>
-      <header style={{ borderBottom: "1px solid #ddd", padding: "12px 0" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
-          <Link href="/" style={{ fontSize: 20, fontWeight: 700, color: "var(--primary, inherit)", textDecoration: "none", display: "flex", alignItems: "center", gap: 8 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element -- logo enviado pelo lojista */}
-            {theme.logoUrl && <img src={theme.logoUrl} alt="" style={{ maxHeight: 40 }} />}
-            {store.name}
-          </Link>
-          {isStoreOpen(store) && (
-            <form method="get" action="/buscar" role="search" style={{ display: "flex", gap: 4, flex: "1 1 200px", maxWidth: 400 }}>
-              <input name="q" aria-label="Buscar produtos" placeholder="Buscar produtos" maxLength={80} style={{ flex: 1, minWidth: 0 }} />
-              <button type="submit">Buscar</button>
-            </form>
-          )}
-          {isStoreOpen(store) && <Link href="/conta">Minha conta</Link>}
-          {isStoreOpen(store) && <CartLink />}
-        </div>
-        {collections.length > 0 && (
-          <nav aria-label="Coleções" style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 16 }}>
-            {collections.map((c) => <Link key={c.id} href={`/colecao/${c.slug}`}>{c.name}</Link>)}
-          </nav>
-        )}
-        {menu.length > 0 && (
-          <nav aria-label="Categorias" style={{ marginTop: 8 }}>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexWrap: "wrap", gap: 16 }}>
+    <div style={theme.primaryColor ? ({ "--primary": theme.primaryColor, "--on-primary": textOn(theme.primaryColor) } as CSSProperties) : undefined}>
+      <header className="site-header">
+        <div className="container">
+          <div className="bar">
+            <Link href="/" className="brand">
+              {/* eslint-disable-next-line @next/next/no-img-element -- logo enviado pelo lojista */}
+              {theme.logoUrl && <img src={theme.logoUrl} alt="" />}
+              {store.name}
+            </Link>
+            {open && (
+              <form method="get" action="/buscar" role="search" className="search">
+                <input name="q" aria-label="Buscar produtos" placeholder="Buscar produtos" maxLength={80} />
+                <button type="submit">Buscar</button>
+              </form>
+            )}
+            {open && (
+              <div className="header-links">
+                <Link href="/conta">Minha conta</Link>
+                <CartLink />
+              </div>
+            )}
+          </div>
+          {(collections.length > 0 || menu.length > 0) && (
+            <nav aria-label="Categorias e coleções" className="subnav">
+              {collections.map((c) => <Link key={c.id} href={`/colecao/${c.slug}`}>{c.name}</Link>)}
               {menu.map((c) => (
-                <li key={c.id}>
+                <span key={c.id}>
                   <Link href={`/c/${c.slug}`}>{c.name}</Link>
                   {c.children.length > 0 && (
-                    <ul style={{ listStyle: "none", paddingLeft: 8, margin: "4px 0 0", fontSize: 14 }}>
-                      {c.children.map((k) => <li key={k.id}><Link href={`/c/${k.slug}`}>{k.name}</Link></li>)}
-                    </ul>
+                    <span className="sub">{c.children.map((k, i) => <span key={k.id}>{i > 0 && " · "}<Link href={`/c/${k.slug}`}>{k.name}</Link></span>)}</span>
                   )}
-                </li>
+                </span>
               ))}
-            </ul>
-          </nav>
-        )}
+            </nav>
+          )}
+        </div>
       </header>
-      {children}
-      {isStoreOpen(store) && <footer style={{ borderTop: "1px solid #ddd", padding: "16px 0", marginTop: 24 }}><SubscribeForm /></footer>}
+      <div className="container">{children}</div>
+      {open && <footer className="site-footer"><div className="container"><SubscribeForm /></div></footer>}
     </div>
   );
 }
