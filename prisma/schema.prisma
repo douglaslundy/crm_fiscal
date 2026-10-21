@@ -40,6 +40,23 @@ enum OrderStatus {
   CANCELED
 }
 
+/// Canal de venda do pedido (cardapio/restaurante). Loja de roupa nao usa (fica null = DELIVERY implicito).
+enum OrderType {
+  PDV
+  SALAO
+  DELIVERY
+  AGENDADO
+}
+
+/// Status de cozinha (KDS), independente do OrderStatus de pagamento.
+enum KitchenStatus {
+  RECEIVED
+  PREPARING
+  READY
+  DELIVERED
+  CANCELED
+}
+
 // ---------- plataforma (sem storeId) ----------
 
 model Account {
@@ -94,6 +111,7 @@ model Store {
   orders            Order[]
   orderItems        OrderItem[]
   settings          StoreSetting[]
+  productAddons     ProductAddon[]
 }
 
 model StoreMember {
@@ -299,6 +317,10 @@ model Product {
   lengthCm    Int
   active      Boolean        @default(true)
   createdAt   DateTime       @default(now())
+  /// Cardapio: preco fixo (null) ou por kg (precisa de priceCents como preco/kg).
+  pricePerKg  Boolean        @default(false)
+  /// Cardapio: preco direto do item, sem variante (loja de roupa usa Variant.priceCents).
+  priceCents  Int?
   store       Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   category    Category?      @relation(fields: [storeId, categoryId], references: [storeId, id], onDelete: NoAction)
   images      ProductImage[]
@@ -306,10 +328,32 @@ model Product {
   reviews     Review[]
   wishlisted  WishlistItem[]
   variants    Variant[]
+  addons      ProductAddon[]
 
   @@unique([storeId, slug])
   @@unique([storeId, id])
   @@index([categoryId])
+}
+
+/// Adicional de item de cardapio (ex.: borda, molho, tamanho). Nao reaproveita Variant:
+/// Variant e combinacao fixa cor+tamanho com estoque/SKU, cardapio precisa de grupos
+/// de escolha multipla/obrigatoria sem estoque.
+model ProductAddon {
+  id        String  @id @default(cuid())
+  storeId   String
+  productId String
+  groupName String
+  name      String
+  priceCents Int    @default(0)
+  required  Boolean @default(false)
+  multiple  Boolean @default(false)
+  active    Boolean @default(true)
+  position  Int     @default(0)
+  store     Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [storeId, productId], references: [storeId, id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([productId])
 }
 
 model ProductImage {
@@ -380,6 +424,11 @@ model Order {
   couponCode      String?
   discountCents   Int         @default(0)
   createdAt       DateTime    @default(now())
+  /// Cardapio: null = pedido de e-commerce (loja de roupa). Preenchido = pedido de restaurante.
+  orderType       OrderType?
+  tableNumber     String?
+  scheduledFor    DateTime?
+  kitchenStatus   KitchenStatus?
   store           Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
   // NoAction de proposito: historico de pedidos protegido (cliente com pedidos nao e apagado).
   customer        Customer    @relation(fields: [storeId, customerId], references: [storeId, id], onDelete: NoAction)
