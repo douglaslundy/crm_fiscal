@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
@@ -33,6 +34,7 @@ export function LoginForm({ provider, next }: { provider: "account" | "customer"
       </label>
       {error && <p role="alert">{error}</p>}
       <button type="submit" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</button>
+      <Link href="/esqueci-senha">Esqueci minha senha</Link>
     </form>
   );
 }

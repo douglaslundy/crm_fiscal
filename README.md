@@ -28,6 +28,7 @@ E2E (Playwright, fluxo completo lojista → cliente → pagamento → suspensão
 | `PLATFORM_DOMAIN` | Domínio raiz (ex.: `minhaplataforma.com.br`); lojas ficam em `<slug>.` desse domínio | sim |
 | `CREDENTIALS_KEY` | Chave AES-256-GCM das credenciais das lojas: 64 hex (`openssl rand -hex 32`). Perder a chave invalida as credenciais salvas | sim |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (upload de imagens) | sim, ou use `STORAGE=local` |
+| `SMTP_URL`, `MAIL_FROM` | E-mail transacional por SMTP (`smtps://usuario:senha@host:465`; Resend, SES, Brevo...). Sem SMTP em produção os e-mails são descartados com aviso: confirmação de pagamento, convite de equipe e redefinição de senha | recomendado |
 | `STORAGE`, `UPLOADS_DIR` | `STORAGE=local` grava as imagens em disco (`UPLOADS_DIR`, volume do Docker na VPS) e serve por `/uploads/...` | alternativa ao Blob |
 | `BILLING_MP_ACCESS_TOKEN` | Access token do Mercado Pago da plataforma (cobra as assinaturas) | sim |
 | `BILLING_WEBHOOK_SECRET` | Segredo do webhook de cobrança (assinatura `x-signature`) | sim |

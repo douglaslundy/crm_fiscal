@@ -420,3 +420,16 @@ model StoreSetting {
 
   @@id([storeId, key])
 }
+
+/// Redefinicao de senha: o token so existe no e-mail (aqui fica o hash). kind: ACCOUNT (plataforma/equipe) ou CUSTOMER (cliente de uma loja).
+model PasswordReset {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  kind      String
+  subjectId String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([kind, subjectId])
+}

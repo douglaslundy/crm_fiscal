@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { inviteStaff, listTeam } from "@/domain/team";
-import { platformDomain } from "@/lib/host";
+import { sendInviteEmail } from "@/domain/notifications";
+import { platformOrigin } from "@/lib/urls";
 import { denied, denyUnlessStoreMember } from "@/lib/admin-api";
 import { domainError, parseBody } from "@/lib/master-api";
 
@@ -22,8 +23,9 @@ export async function POST(req: Request) {
   try {
     const r = await inviteStaff(ctx.store.id, body.data.email);
     if (r.status === "INVITED") {
-      const domain = platformDomain();
-      return NextResponse.json({ inviteUrl: `${domain === "localhost" ? "http" : "https"}://${domain}/convite/${r.token}` }, { status: 201 });
+      const inviteUrl = `${platformOrigin()}/convite/${r.token}`;
+      await sendInviteEmail(body.data.email.trim().toLowerCase(), ctx.store.name, inviteUrl);
+      return NextResponse.json({ inviteUrl }, { status: 201 });
     }
     return NextResponse.json(await listTeam(ctx.store.id), { status: 201 });
   } catch (e) {

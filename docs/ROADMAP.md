@@ -8,7 +8,8 @@ Registrado em 2026-10-21. Marque `[x]` ao concluir.
 - [x] Painel do dono (admin) e painel do master (shell e tabelas; refinar formularios)
 - [~] Home da plataforma, cadastro, login (feitos); favicon e imagens padrao (falta)
 - [ ] Teste visual no navegador (desktop e celular) de todas as telas
-- [ ] E-mail transacional: pedido, recuperacao de senha, verificacao, convite
+- [x] E-mail transacional: confirmacao de pagamento, recuperacao de senha, convite (SMTP generico)
+- [ ] Verificacao de e-mail no cadastro (nao feita: exige decidir se bloqueia login)
 - [x] Paginas legais: termos e privacidade (LGPD) — modelos genericos, revisar com advogado
 - [x] Upload de imagens sem Vercel Blob (STORAGE=local + UPLOADS_DIR)
 - [x] CI (lint, tipos, testes, build) — workflow criado, ainda nao executado no GitHub

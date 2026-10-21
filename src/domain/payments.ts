@@ -5,6 +5,7 @@ import { dbForStore } from "@/lib/db-store";
 import { gatewayForStore } from "@/integrations/payments";
 import { isPixType, PaymentGatewayError, type BoletoPayer, type PaymentGateway, type PaymentStatus } from "@/integrations/payments/types";
 import { pixPriceCents } from "./money";
+import { notifyOrderPaid } from "./notifications";
 import { cancelOrder, OrderNotFoundError } from "./orders";
 import { getSettings } from "./storeSettings";
 import { assertStoreCanSell } from "./subscription";
@@ -35,7 +36,10 @@ export async function applyPaymentUpdate(storeId: string, orderId: string, statu
   const ctx = { storeId, orderId, paymentId };
   if (status === "approved") {
     const { count } = await db.order.updateMany({ where: { id: orderId, status: "PENDING_PAYMENT" }, data: { status: "PAID", mpPaymentId: paymentId } });
-    if (count > 0) return "paid";
+    if (count > 0) {
+      void notifyOrderPaid(storeId, orderId);
+      return "paid";
+    }
     const o = await db.order.findFirst({ where: { id: orderId }, select: { status: true, mpPaymentId: true } });
     if (!o) throw new OrderNotFoundError("Pedido não encontrado");
     if (o.status === "CANCELED") return alert("PAID_FOR_CANCELED_ORDER", ctx), "alert";
