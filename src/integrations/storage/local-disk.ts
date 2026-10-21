@@ -3,9 +3,12 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { IMAGE_TYPES, isOwnImageUrl, type ImageStorage, type ImageType } from "./image";
 
-/** So desenvolvimento: grava em public/uploads/stores/<loja>/ (git-ignorado), servido pelo Next em /uploads/... */
+/** Pasta dos uploads: UPLOADS_DIR (volume em producao) ou public/uploads (dev, git-ignorado). */
+export const uploadsRoot = () => process.env.UPLOADS_DIR ?? join(process.cwd(), "public", "uploads");
+
+/** Grava em <uploadsRoot>/stores/<loja>/; servido em /uploads/... pela rota src/app/uploads (o `next start` nao serve arquivos novos de public/). */
 export class LocalDiskStorage implements ImageStorage {
-  constructor(private root = join(process.cwd(), "public", "uploads")) {}
+  constructor(private root = uploadsRoot()) {}
 
   urlPrefix(storeId: string) {
     return `/uploads/stores/${storeId}/`;

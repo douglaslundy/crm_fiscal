@@ -27,7 +27,8 @@ E2E (Playwright, fluxo completo lojista → cliente → pagamento → suspensão
 | `AUTH_SECRET` | Segredo das sessões (`openssl rand -base64 32`) | sim |
 | `PLATFORM_DOMAIN` | Domínio raiz (ex.: `minhaplataforma.com.br`); lojas ficam em `<slug>.` desse domínio | sim |
 | `CREDENTIALS_KEY` | Chave AES-256-GCM das credenciais das lojas: 64 hex (`openssl rand -hex 32`). Perder a chave invalida as credenciais salvas | sim |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob (upload de imagens) | sim |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob (upload de imagens) | sim, ou use `STORAGE=local` |
+| `STORAGE`, `UPLOADS_DIR` | `STORAGE=local` grava as imagens em disco (`UPLOADS_DIR`, volume do Docker na VPS) e serve por `/uploads/...` | alternativa ao Blob |
 | `BILLING_MP_ACCESS_TOKEN` | Access token do Mercado Pago da plataforma (cobra as assinaturas) | sim |
 | `BILLING_WEBHOOK_SECRET` | Segredo do webhook de cobrança (assinatura `x-signature`) | sim |
 | `CRON_SECRET` | Autoriza as rotas `/api/cron/*` (a Vercel envia `Authorization: Bearer`) | sim |

@@ -59,7 +59,7 @@ export default async function VitrineLayout({ children }: { children: ReactNode 
         </div>
       </header>
       <div className="container">{children}</div>
-      {open && <footer className="site-footer"><div className="container"><SubscribeForm /></div></footer>}
+      {open && <footer className="site-footer"><div className="container"><SubscribeForm /><p style={{ margin: "12px 0 0" }}><Link href="/termos">Termos de compra</Link> · <Link href="/privacidade">Privacidade</Link></p></div></footer>}
     </div>
   );
 }

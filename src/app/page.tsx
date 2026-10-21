@@ -45,7 +45,7 @@ export default async function Home() {
           </div>
         </section>
       )}
-      <footer className="site-footer"><div className="container">© Plataforma de Lojas</div></footer>
+      <footer className="site-footer"><div className="container">© Plataforma de Lojas · <Link href="/termos">Termos de uso</Link> · <Link href="/privacidade">Privacidade</Link></div></footer>
     </>
   );
 }

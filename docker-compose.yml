@@ -22,7 +22,12 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://ecomerce:${DB_PASSWORD}@db:5432/ecomerce
+      STORAGE: local
+      UPLOADS_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
     ports:
       - "${APP_PORT:-3500}:3000"
 volumes:
   dbdata:
+  uploads:

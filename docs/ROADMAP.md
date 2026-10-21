@@ -9,9 +9,9 @@ Registrado em 2026-10-21. Marque `[x]` ao concluir.
 - [~] Home da plataforma, cadastro, login (feitos); favicon e imagens padrao (falta)
 - [ ] Teste visual no navegador (desktop e celular) de todas as telas
 - [ ] E-mail transacional: pedido, recuperacao de senha, verificacao, convite
-- [ ] Paginas legais: termos e privacidade (LGPD)
-- [ ] Upload de imagens sem Vercel Blob (disco ou S3)
-- [ ] CI (lint, tipos, testes)
+- [x] Paginas legais: termos e privacidade (LGPD) — modelos genericos, revisar com advogado
+- [x] Upload de imagens sem Vercel Blob (STORAGE=local + UPLOADS_DIR)
+- [x] CI (lint, tipos, testes, build) — workflow criado, ainda nao executado no GitHub
 
 ## Producao (infra)
 - [ ] Dominio + DNS curinga (`*.dominio`) + proxy HTTPS (Caddy/Traefik)

@@ -9,6 +9,8 @@ describe("storefrontPath", () => {
     expect(storefrontPath("/colecao/verao")).toBe("/vitrine/colecao/verao");
     expect(storefrontPath("/buscar")).toBe("/vitrine/buscar");
     expect(storefrontPath("/carrinho")).toBe("/vitrine/carrinho");
+    expect(storefrontPath("/termos")).toBe("/vitrine/termos");
+    expect(storefrontPath("/privacidade")).toBe("/vitrine/privacidade");
     expect(storefrontPath("/checkout")).toBe("/vitrine/checkout");
     expect(storefrontPath("/pedido/ck123")).toBe("/vitrine/pedido/ck123");
     expect(storefrontPath("/conta")).toBe("/vitrine/conta");
@@ -18,7 +20,7 @@ describe("storefrontPath", () => {
   });
   it("demais caminhos nao sao reescritos", () => {
     for (const p of ["/admin", "/admin/produtos", "/entrar", "/loja-entrar", "/cadastro", "/api/admin/x", "/master",
-      "/_next/data/x", "/carrinho/x", "/carrinho/", "/checkout/", "/checkout/x", "/conta/", "/conta/x", "/conta/enderecos/x", "/conta/favoritos/x", "/conta/pedidos", "/conta/pedidos/", "/conta/pedidos/a/b", "/colecao", "/colecao/", "/colecao/a/b", "/c", "/c/", "/p", "/p/", "/c/a/b", "/buscarx", "/buscar/x", "/vitrine", "/vitrine/p/x", "/cx/a", "/pedido", "/pedido/", "/pedido/a/b", "/pedidos/a"]) {
+      "/_next/data/x", "/carrinho/x", "/carrinho/", "/checkout/", "/checkout/x", "/conta/", "/conta/x", "/conta/enderecos/x", "/conta/favoritos/x", "/conta/pedidos", "/conta/pedidos/", "/conta/pedidos/a/b", "/colecao", "/colecao/", "/colecao/a/b", "/c", "/c/", "/p", "/p/", "/c/a/b", "/buscarx", "/termos/x", "/privacidade/", "/buscar/x", "/vitrine", "/vitrine/p/x", "/cx/a", "/pedido", "/pedido/", "/pedido/a/b", "/pedidos/a"]) {
       expect(storefrontPath(p), p).toBeNull();
     }
   });
