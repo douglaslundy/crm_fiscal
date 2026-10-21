@@ -142,9 +142,9 @@ export function CheckoutView({ initialAddresses }: { initialAddresses: Address[]
       )}
       <section>
         <h2>Itens</h2>
-        <ul style={{ listStyle: "none", padding: 0 }}>
+        <ul className="cart-lines">
           {priced.lines.map((l) => (
-            <li key={l.variantId} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "4px 0", borderBottom: "1px solid #eee" }}>
+            <li key={l.variantId} className="cart-line cart-line-compact">
               <span>{l.qty}× {l.productName} ({l.color} / {l.size})</span><span>{formatBRL(l.lineCents)}</span>
             </li>
           ))}

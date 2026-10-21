@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 // uso: node _shot-auth.mjs <origin> <email> <provider> <saida-prefixo> <caminho>...
 const [,, origin, email, provider, prefix, ...paths] = process.argv;
 const b = await chromium.launch();
-const ctx = await b.newContext({ viewport: { width: 1280, height: 900 } });
+const ctx = await b.newContext({ viewport: { width: Number(process.env.W ?? 1280), height: Number(process.env.H ?? 900) } });
 const p = await ctx.newPage();
 await p.goto(origin + "/api/auth/csrf");
 const { csrfToken } = JSON.parse(await p.innerText("body"));

@@ -21,7 +21,7 @@ export default async function VitrineLayout({ children }: { children: ReactNode 
   const theme = await getTheme(store.id);
   const open = isStoreOpen(store);
   return (
-    <div style={theme.primaryColor ? ({ "--primary": theme.primaryColor, "--on-primary": textOn(theme.primaryColor) } as CSSProperties) : undefined}>
+    <div className="shop" style={theme.primaryColor ? ({ "--primary": theme.primaryColor, "--on-primary": textOn(theme.primaryColor) } as CSSProperties) : undefined}>
       <header className="site-header">
         <div className="container">
           <div className="bar">
@@ -58,7 +58,7 @@ export default async function VitrineLayout({ children }: { children: ReactNode 
           )}
         </div>
       </header>
-      <div className="container">{children}</div>
+      <div className="container shop-body">{children}</div>
       {open && <footer className="site-footer"><div className="container"><SubscribeForm /><p style={{ margin: "12px 0 0" }}><Link href="/termos">Termos de compra</Link> · <Link href="/privacidade">Privacidade</Link></p></div></footer>}
     </div>
   );

@@ -20,7 +20,7 @@ export function SubscribeForm() {
 
   if (state === "done") return <p role="status">Pronto! Você vai receber nossas novidades.</p>;
   return (
-    <form onSubmit={onSubmit} style={{ display: "grid", gap: 6, maxWidth: 420 }}>
+    <form onSubmit={onSubmit}>
       <label>Receba novidades e ofertas <input name="email" type="email" required maxLength={254} placeholder="seu@email.com" /></label>
       <small>Ao se inscrever você concorda em receber e-mails desta loja e pode pedir a remoção a qualquer momento.</small>
       <button type="submit" disabled={state === "busy"}>Inscrever</button>

@@ -17,9 +17,12 @@ export default async function AccountPage() {
   const orders = await listOrders(store.id, customerId);
   return (
     <main style={{ padding: "16px 0", display: "grid", gap: 12 }}>
-      <h1>Meus pedidos</h1>
-      <Link href="/conta/enderecos">Meus endereços</Link>
-      <Link href="/conta/favoritos">Meus favoritos</Link>
+      <h1>Minha conta</h1>
+      <nav className="pills" aria-label="Conta">
+        <Link href="/conta/enderecos">Meus endereços</Link>
+        <Link href="/conta/favoritos">Meus favoritos</Link>
+      </nav>
+      <h2>Meus pedidos</h2>
       {orders.length === 0 ? <p>Você ainda não fez pedidos.</p> : (
         <ul style={{ listStyle: "none", padding: 0 }}>
           {orders.map((o) => (

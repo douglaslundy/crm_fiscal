@@ -36,9 +36,9 @@ export function AddressForm({ onCreated, address }: { onCreated: (a: Address) =>
   }
 
   return (
-    <form onSubmit={submit} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+    <form onSubmit={submit} className="address-form">
       {FIELDS.map(([name, label, max, required]) => (
-        <label key={name} style={{ display: "grid" }}>{label}
+        <label key={name}>{label}
           <input name={name} maxLength={max} required={required} defaultValue={address?.[name] ?? ""} />
         </label>
       ))}

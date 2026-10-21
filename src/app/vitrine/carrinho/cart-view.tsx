@@ -66,9 +66,9 @@ export function CartView() {
         </ul>
       )}
       {empty ? <p>Seu carrinho está vazio. <Link href="/">Continuar comprando</Link></p> : (
-        <ul style={{ listStyle: "none", padding: 0 }}>
+        <ul className="cart-lines">
           {view.lines.map((l) => (
-            <li key={l.variantId} style={{ display: "flex", gap: 12, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee", flexWrap: "wrap" }}>
+            <li key={l.variantId} className="cart-line">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {l.imageUrl && <img src={l.imageUrl} alt="" width={64} height={64} style={{ objectFit: "cover" }} />}
               <div style={{ flex: "1 1 160px" }}>
@@ -91,7 +91,7 @@ export function CartView() {
       <p style={{ fontSize: 18 }}>Subtotal: <strong>{formatBRL(view.subtotalCents)}</strong></p>
       {empty
         ? <button type="button" disabled>Finalizar compra</button>
-        : <Link href="/checkout" style={{ display: "inline-block", padding: "10px 16px", background: "var(--primary, #111)", color: "var(--on-primary, #fff)", textDecoration: "none" }}>Finalizar compra</Link>}
+        : <Link href="/checkout" className="btn">Finalizar compra</Link>}
     </div>
   );
 }
