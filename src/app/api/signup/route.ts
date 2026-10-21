@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
 import { assertSameOriginJson } from "@/lib/csrf";
 import { clientIp, createRateLimiter } from "@/lib/rate-limit";
+import { sendVerifyEmail } from "@/domain/notifications";
+import { platformOrigin } from "@/lib/urls";
 import { EmailExistsError, PlanNotFoundError, SlugInvalidError, SlugTakenError, createStore } from "@/domain/stores";
 
 const Body = z.object({
@@ -30,7 +32,8 @@ export async function POST(req: Request) {
   if (!parsed.success) return err(400, "Dados inválidos.", { fields: z.flattenError(parsed.error).fieldErrors });
 
   try {
-    const { store } = await createStore(parsed.data, { db: prisma });
+    const { store, account } = await createStore(parsed.data, { db: prisma });
+    void sendVerifyEmail("ACCOUNT", account.id, account.email, account.name, platformOrigin());
     const domain = platformDomain();
     const proto = domain === "localhost" ? "http" : "https";
     return NextResponse.json({ storeUrl: `${proto}://${store.slug}.${domain}`, slug: store.slug }, { status: 201 });

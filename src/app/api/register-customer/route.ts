@@ -8,6 +8,8 @@ import { STORE_HOST_HEADER, platformDomain } from "@/lib/host";
 import { resolveStoreByHost } from "@/lib/tenant";
 import { isStoreBlocked } from "@/domain/subscription";
 import { assertSameOriginJson } from "@/lib/csrf";
+import { sendVerifyEmail } from "@/domain/notifications";
+import { storeOrigin } from "@/lib/urls";
 import { clientIp, createRateLimiter } from "@/lib/rate-limit";
 
 const registerLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 60_000 });
@@ -42,6 +44,7 @@ export async function POST(req: Request) {
       data: { ...data, storeId: store.id, passwordHash: await bcrypt.hash(password, 10) },
       select: { id: true, name: true, email: true },
     });
+    void sendVerifyEmail("CUSTOMER", c.id, c.email, c.name, storeOrigin(store.slug));
     return NextResponse.json(c, { status: 201 });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return err(409, "E-mail já cadastrado nesta loja.");

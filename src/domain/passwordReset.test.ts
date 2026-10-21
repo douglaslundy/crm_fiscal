@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { fakeSender } from "@/integrations/email";
 import { sendInviteEmail, sendPasswordResetEmail } from "./notifications";
-import { ForgotBody, ResetBody, ResetTokenError, requestReset, resetPassword } from "./passwordReset";
+import { ForgotBody, ResetBody, ResetTokenError, requestEmailVerification, requestReset, resetPassword, verifyEmail } from "./passwordReset";
 
 let tag: string;
 let planId: string;
@@ -94,5 +94,27 @@ describe("e-mails", () => {
     await sendInviteEmail("b@t.local", "Loja X", "https://x/convite/tok");
     expect(fakeSender.sent.map((m) => [m.to, m.text.includes("/tok")])).toEqual([["a@t.local", true], ["b@t.local", true]]);
     expect(fakeSender.sent[0].text).toContain("Olá, Ana.");
+  });
+});
+
+describe("confirmacao de e-mail", () => {
+  it("confirma uma vez; conta e cliente; token de confirmacao nao troca senha", async () => {
+    const a = await mkAccount("ve");
+    const c = await mkCustomer(await mkStore("ve"), "ve");
+    const ta = await requestEmailVerification("ACCOUNT", a.id);
+    const tc = await requestEmailVerification("CUSTOMER", c.id);
+    expect(await code(resetPassword(ta, "nova-senha-123"))).toBe("TOKEN");
+    expect(await code(verifyEmail(ta))).toBe("ok");
+    expect(await code(verifyEmail(ta))).toBe("TOKEN");
+    expect(await code(verifyEmail(tc))).toBe("ok");
+    expect((await prisma.account.findUniqueOrThrow({ where: { id: a.id } })).emailVerifiedAt).not.toBeNull();
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: c.id } })).emailVerifiedAt).not.toBeNull();
+  });
+  it("token de redefinicao nao confirma e-mail; vencido e recusado", async () => {
+    const a = await mkAccount("vx");
+    const r = await requestReset("ACCOUNT", a.email, null);
+    expect(await code(verifyEmail(r!.token))).toBe("TOKEN");
+    const old = await requestEmailVerification("ACCOUNT", a.id, new Date(Date.now() - 8 * 24 * 3600_000));
+    expect(await code(verifyEmail(old))).toBe("TOKEN");
   });
 });

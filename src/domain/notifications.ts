@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { sendMail } from "@/integrations/email";
 import { storeOrigin } from "@/lib/urls";
 import { formatBRL } from "./money";
+import { requestEmailVerification } from "./passwordReset";
 
 /** Pedido pago: confirmacao ao cliente. Nunca lanca (e-mail nao pode desfazer o pagamento). */
 export async function notifyOrderPaid(storeId: string, orderId: string): Promise<void> {
@@ -27,3 +28,13 @@ export const sendInviteEmail = (to: string, storeName: string, url: string) =>
 
 export const sendPasswordResetEmail = (to: string, name: string, url: string) =>
   sendMail({ to, subject: "Redefinição de senha", text: `Olá, ${name.split(/\s+/)[0]}.\n\nPara criar uma nova senha, acesse (vale 1 hora, uso único):\n${url}\n\nSe você não pediu, ignore este e-mail.` });
+
+/** Confirmacao de e-mail no cadastro. Nao bloqueia o login; nunca lanca (falha de envio nao desfaz o cadastro). */
+export async function sendVerifyEmail(kind: "ACCOUNT" | "CUSTOMER", subjectId: string, to: string, name: string, origin: string): Promise<void> {
+  try {
+    const token = await requestEmailVerification(kind, subjectId);
+    await sendMail({ to, subject: "Confirme seu e-mail", text: `Olá, ${name.split(/\s+/)[0]}.\n\nConfirme seu e-mail pelo link (vale 7 dias):\n${origin}/verificar-email/${token}\n\nSe você não criou uma conta, ignore este e-mail.` });
+  } catch (e) {
+    console.error("[e-mail] sendVerifyEmail", subjectId, e instanceof Error ? e.message : e);
+  }
+}

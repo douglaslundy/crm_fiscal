@@ -41,10 +41,35 @@ export async function resetPassword(token: string, password: string, now = new D
   const tokenHash = hashToken(token);
   const passwordHash = await bcrypt.hash(password, 10);
   await prisma.$transaction(async (tx) => {
-    const { count } = await tx.passwordReset.updateMany({ where: { tokenHash, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+    const { count } = await tx.passwordReset.updateMany({ where: { tokenHash, kind: { in: ["ACCOUNT", "CUSTOMER"] }, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
     if (count === 0) throw new ResetTokenError("Link inválido ou vencido");
     const r = await tx.passwordReset.findUniqueOrThrow({ where: { tokenHash }, select: { kind: true, subjectId: true } });
     if (r.kind === "ACCOUNT") await tx.account.update({ where: { id: r.subjectId }, data: { passwordHash } });
     else await tx.customer.update({ where: { id: r.subjectId }, data: { passwordHash } });
+  });
+}
+
+const VERIFY_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/** Token de confirmacao de e-mail (7 dias, uso unico). Mesma tabela da redefinicao, kinds VERIFY_*: nunca serve para trocar senha. */
+export async function requestEmailVerification(kind: "ACCOUNT" | "CUSTOMER", subjectId: string, now = new Date()): Promise<string> {
+  const token = randomBytes(32).toString("base64url");
+  const k = `VERIFY_${kind}`;
+  await prisma.$transaction([
+    prisma.passwordReset.deleteMany({ where: { kind: k, subjectId, usedAt: null } }),
+    prisma.passwordReset.create({ data: { tokenHash: hashToken(token), kind: k, subjectId, expiresAt: new Date(now.getTime() + VERIFY_TTL_MS) } }),
+  ]);
+  return token;
+}
+
+/** Consome o token e marca o e-mail como confirmado. Invalido, usado ou vencido: ResetTokenError. */
+export async function verifyEmail(token: string, now = new Date()): Promise<void> {
+  const tokenHash = hashToken(token);
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.passwordReset.updateMany({ where: { tokenHash, kind: { in: ["VERIFY_ACCOUNT", "VERIFY_CUSTOMER"] }, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+    if (count === 0) throw new ResetTokenError("Link inválido ou vencido");
+    const r = await tx.passwordReset.findUniqueOrThrow({ where: { tokenHash }, select: { kind: true, subjectId: true } });
+    if (r.kind === "VERIFY_ACCOUNT") await tx.account.update({ where: { id: r.subjectId }, data: { emailVerifiedAt: now } });
+    else await tx.customer.update({ where: { id: r.subjectId }, data: { emailVerifiedAt: now } });
   });
 }
