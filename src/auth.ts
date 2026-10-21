@@ -14,11 +14,11 @@ type Kind = "account" | "customer";
 declare module "next-auth" {
   interface User { kind: Kind; isMaster?: boolean; storeId?: string }
   interface Session {
-    user: { id: string; kind: Kind; name?: string | null; email?: string | null; isMaster?: boolean; storeId?: string };
+    user: { id: string; kind: Kind; pwv?: number; name?: string | null; email?: string | null; isMaster?: boolean; storeId?: string };
   }
 }
 declare module "next-auth/jwt" {
-  interface JWT { id: string; kind: Kind; isMaster?: boolean; storeId?: string }
+  interface JWT { id: string; kind: Kind; isMaster?: boolean; storeId?: string; pwv?: number }
 }
 
 type Creds = Partial<Record<string, string>> | undefined;
@@ -58,6 +58,14 @@ export async function authorizeAccount(c: Creds, ip = "unknown"): Promise<User |
   return { id: a.id, name: a.name, email: a.email, kind: "account", isMaster: a.isMaster };
 }
 
+/** "Versao da senha": instante da ultima troca (0 = nunca trocada). O JWT guarda o valor do login; trocar a senha invalida as sessoes antigas. */
+export async function passwordVersion(kind: Kind, id: string): Promise<number | null> {
+  const row = kind === "account"
+    ? await prisma.account.findUnique({ where: { id }, select: { passwordChangedAt: true } })
+    : await prisma.customer.findUnique({ where: { id }, select: { passwordChangedAt: true } });
+  return row ? (row.passwordChangedAt?.getTime() ?? 0) : null;
+}
+
 /** Cliente da loja do host (nunca de campo do formulario): mesmo email em outra loja e outra conta. Loja SUSPENDED/CANCELED recusa. */
 export async function authorizeCustomer(c: Creds, host: string | undefined, ip = "unknown"): Promise<User | null> {
   const found = host ? await resolveStoreByHost(host, platformDomain()) : null;
@@ -94,16 +102,21 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user) Object.assign(token, { id: user.id, kind: user.kind, isMaster: user.isMaster, storeId: user.storeId });
+    async jwt({ token, user }) {
+      if (user) Object.assign(token, { id: user.id, kind: user.kind, isMaster: user.isMaster, storeId: user.storeId, pwv: (await passwordVersion(user.kind, user.id)) ?? 0 });
       return token;
     },
     session({ session, token }) {
       const extra = token.kind === "account" ? { isMaster: token.isMaster } : { storeId: token.storeId };
-      session.user = { id: token.id, kind: token.kind, name: token.name, email: token.email, ...extra };
+      session.user = { id: token.id, kind: token.kind, name: token.name, email: token.email, pwv: token.pwv ?? 0, ...extra };
       return session;
     },
   },
 };
 
-export const getSession = () => getServerSession(authOptions);
+/** Sessao valida: a senha nao mudou desde o login (conta apagada tambem invalida). */
+export async function getSession() {
+  const s = await getServerSession(authOptions);
+  if (!s?.user) return s;
+  return (await passwordVersion(s.user.kind, s.user.id)) === (s.user.pwv ?? 0) ? s : null;
+}

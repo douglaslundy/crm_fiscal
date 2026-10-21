@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { fakeSender } from "@/integrations/email";
+import { passwordVersion } from "@/auth";
 import { sendInviteEmail, sendPasswordResetEmail } from "./notifications";
 import { ForgotBody, ResetBody, ResetTokenError, requestEmailVerification, requestReset, resetPassword, verifyEmail } from "./passwordReset";
 
@@ -116,5 +117,18 @@ describe("confirmacao de e-mail", () => {
     expect(await code(verifyEmail(r!.token))).toBe("TOKEN");
     const old = await requestEmailVerification("ACCOUNT", a.id, new Date(Date.now() - 8 * 24 * 3600_000));
     expect(await code(verifyEmail(old))).toBe("TOKEN");
+  });
+});
+
+describe("invalidacao de sessao", () => {
+  it("trocar a senha muda a versao da senha (sessoes antigas deixam de valer); conta inexistente: null", async () => {
+    const a = await mkAccount("pv");
+    const c = await mkCustomer(await mkStore("pv"), "pv");
+    expect([await passwordVersion("account", a.id), await passwordVersion("customer", c.id)]).toEqual([0, 0]);
+    const ra = await requestReset("ACCOUNT", a.email, null);
+    await resetPassword(ra!.token, "nova-senha-123");
+    expect(await passwordVersion("account", a.id)).toBeGreaterThan(0);
+    expect(await passwordVersion("customer", c.id)).toBe(0);
+    expect(await passwordVersion("account", "nao-existe")).toBeNull();
   });
 });

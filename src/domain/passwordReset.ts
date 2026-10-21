@@ -44,8 +44,8 @@ export async function resetPassword(token: string, password: string, now = new D
     const { count } = await tx.passwordReset.updateMany({ where: { tokenHash, kind: { in: ["ACCOUNT", "CUSTOMER"] }, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
     if (count === 0) throw new ResetTokenError("Link inválido ou vencido");
     const r = await tx.passwordReset.findUniqueOrThrow({ where: { tokenHash }, select: { kind: true, subjectId: true } });
-    if (r.kind === "ACCOUNT") await tx.account.update({ where: { id: r.subjectId }, data: { passwordHash } });
-    else await tx.customer.update({ where: { id: r.subjectId }, data: { passwordHash } });
+    if (r.kind === "ACCOUNT") await tx.account.update({ where: { id: r.subjectId }, data: { passwordHash, passwordChangedAt: now } });
+    else await tx.customer.update({ where: { id: r.subjectId }, data: { passwordHash, passwordChangedAt: now } });
   });
 }
 

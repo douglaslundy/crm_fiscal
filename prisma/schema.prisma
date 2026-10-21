@@ -49,6 +49,7 @@ model Account {
   passwordHash String
   isMaster     Boolean       @default(false)
   emailVerifiedAt DateTime?
+  passwordChangedAt DateTime?
   memberships  StoreMember[]
 }
 
@@ -152,6 +153,7 @@ model Customer {
   phone        String
   passwordHash String
   emailVerifiedAt DateTime?
+  passwordChangedAt DateTime?
   createdAt    DateTime  @default(now())
   store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
   addresses    Address[]
