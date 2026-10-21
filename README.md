@@ -42,7 +42,20 @@ E2E (Playwright, fluxo completo lojista → cliente → pagamento → suspensão
 
 Fora da Vercel (servidor próprio, Docker etc.), o next-auth precisa de `AUTH_TRUST_HOST=true` para confiar no host da requisição (subdomínios e domínios próprios das lojas).
 
-## Checklist de deploy (dono da plataforma)
+## Deploy em VPS com Docker
+
+```bash
+git clone <repo> && cd <repo>
+cp .env.example .env   # preencha DB_PASSWORD, AUTH_SECRET, CREDENTIALS_KEY, CRON_SECRET, NEXTAUTH_URL, PLATFORM_DOMAIN, SEED_*
+docker compose up -d --build   # app + Postgres + cron (a cada 5 min / hora) + backup diario em ./backups
+docker compose exec app npm run db:seed   # planos e conta master (uma vez)
+```
+
+- As migrações rodam sozinhas ao iniciar o app. Imagens enviadas ficam no volume `uploads` (`STORAGE=local`).
+- HTTPS com domínio próprio: aponte `PLATFORM_DOMAIN` e `*.PLATFORM_DOMAIN` (DNS tipo A) para o servidor, ajuste `NEXTAUTH_URL=https://PLATFORM_DOMAIN` e rode `docker compose --profile https up -d`. O Caddy emite o certificado de cada loja sob demanda (consulta `/api/tls-check`).
+- Para testar em rede local sem domínio, use `PLATFORM_DOMAIN=<ip>.nip.io` (as lojas ficam em `<slug>.<ip>.nip.io`).
+
+## Checklist de deploy (dono da plataforma, Vercel)
 
 1. Criar o projeto na Vercel apontando para este repositório e um PostgreSQL gerenciado.
 2. Domínio: adicionar `PLATFORM_DOMAIN` e o wildcard `*.PLATFORM_DOMAIN` ao projeto (DNS conforme a Vercel indicar).

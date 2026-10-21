@@ -1,0 +1,18 @@
+# HTTPS automatico (Let's Encrypt) por host, sem DNS curinga com desafio: o Caddy pergunta ao app se o dominio e valido.
+# Uso: docker compose --profile https up -d   (portas 80/443 livres; DNS: A de PLATFORM_DOMAIN e *.PLATFORM_DOMAIN para este servidor)
+{
+	on_demand_tls {
+		ask http://app:3000/api/tls-check
+	}
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy app:3000
+}
+
+http:// {
+	redir https://{host}{uri} permanent
+}

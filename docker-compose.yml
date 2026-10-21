@@ -1,4 +1,5 @@
 # Deploy em VPS: copie .env.example para .env, preencha e rode `docker compose up -d --build`.
+# HTTPS com dominio proprio: `docker compose --profile https up -d` (ver Caddyfile).
 services:
   db:
     image: postgres:16-alpine
@@ -28,6 +29,57 @@ services:
       - uploads:/data/uploads
     ports:
       - "${APP_PORT:-3500}:3000"
+  # Agendador (equivalente ao vercel.json): expira pedidos a cada 5 min e roda a cobranca a cada hora.
+  cron:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    depends_on:
+      - app
+    env_file: .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        n=0
+        while true; do
+          sleep 300
+          curl -fsS -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/cron/expire-orders > /dev/null || echo "expire-orders falhou"
+          n=$$((n + 1))
+          if [ $$((n % 12)) -eq 0 ]; then
+            curl -fsS -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/cron/billing > /dev/null || echo "billing falhou"
+          fi
+        done
+  # Backup diario do banco em ./backups (mantem 7 dias).
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          pg_dump -h db -U ecomerce ecomerce | gzip > /backups/ecomerce-$$(date +%F).sql.gz || echo "backup falhou"
+          find /backups -name '*.sql.gz' -mtime +7 -delete
+          sleep 86400
+        done
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
 volumes:
   dbdata:
   uploads:
+  caddy_data:
