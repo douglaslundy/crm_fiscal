@@ -28,14 +28,15 @@ services:
     volumes:
       - uploads:/data/uploads
     ports:
-      - "${APP_PORT:-3500}:3000"
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-3500}:3000"
   # Agendador (equivalente ao vercel.json): expira pedidos a cada 5 min e roda a cobranca a cada hora.
   cron:
     image: curlimages/curl:8.10.1
     restart: unless-stopped
     depends_on:
       - app
-    env_file: .env
+    environment:
+      CRON_SECRET: ${CRON_SECRET}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |

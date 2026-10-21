@@ -23,10 +23,10 @@ export async function POST(req: Request) {
     const store = await resolveStoreByHost(host, platformDomain());
     if (!store) return err(404, "Loja não encontrada.");
     const r = await requestReset("CUSTOMER", parsed.data.email, store.id);
-    if (r) await sendPasswordResetEmail(r.email, r.name, `${storeOrigin(store.slug)}/redefinir-senha/${r.token}`);
+    if (r) void sendPasswordResetEmail(r.email, r.name, `${storeOrigin(store.slug)}/redefinir-senha/${r.token}`);
   } else {
     const r = await requestReset("ACCOUNT", parsed.data.email, null);
-    if (r) await sendPasswordResetEmail(r.email, r.name, `${platformOrigin()}/redefinir-senha/${r.token}`);
+    if (r) void sendPasswordResetEmail(r.email, r.name, `${platformOrigin()}/redefinir-senha/${r.token}`);
   }
   return NextResponse.json({ ok: true });
 }

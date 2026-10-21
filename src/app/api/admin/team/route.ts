@@ -6,7 +6,7 @@ import { platformOrigin } from "@/lib/urls";
 import { denied, denyUnlessStoreMember } from "@/lib/admin-api";
 import { domainError, parseBody } from "@/lib/master-api";
 
-const Body = z.object({ email: z.string().min(3).max(320) });
+const Body = z.object({ email: z.string().trim().toLowerCase().max(320).pipe(z.email()) });
 
 export async function GET(req: Request) {
   const ctx = await denyUnlessStoreMember(req, { role: "OWNER" });
