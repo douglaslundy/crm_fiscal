@@ -41,6 +41,7 @@ export async function seed(prisma: PrismaClient) {
   for (const p of PLANS) {
     await prisma.plan.upsert({ where: { name: p.name }, update: p, create: p });
   }
+  if (process.env.SEED_DEMO === "0") return; // producao: so master e planos, sem loja de exemplo
   const plan = await prisma.plan.findUniqueOrThrow({ where: { name: "Start" } });
 
   const store = await prisma.store.upsert({

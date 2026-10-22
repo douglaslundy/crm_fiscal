@@ -45,6 +45,23 @@ describe("seed", () => {
   });
 });
 
+describe("seed em producao (SEED_DEMO=0)", () => {
+  it("cria master e planos sem criar loja", async () => {
+    const stores = await prisma.store.count();
+    process.env.SEED_DEMO = "0";
+    process.env.SEED_MASTER_EMAIL = "prod-master@test.local";
+    try {
+      await seed(prisma);
+      expect(await prisma.account.findUnique({ where: { email: "prod-master@test.local" } })).toMatchObject({ isMaster: true });
+      expect(await prisma.store.count()).toBe(stores);
+    } finally {
+      delete process.env.SEED_DEMO;
+      process.env.SEED_MASTER_EMAIL = "master@test.local";
+      await prisma.account.deleteMany({ where: { email: "prod-master@test.local" } });
+    }
+  });
+});
+
 const FK = /Foreign key constraint|violates foreign key/i;
 
 let planId: string;
