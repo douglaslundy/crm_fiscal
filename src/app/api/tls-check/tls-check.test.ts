@@ -32,4 +32,9 @@ describe("GET /api/tls-check", () => {
     expect(await ask("evil.com")).toBe(404);
     expect(await ask("")).toBe(404);
   });
+
+  it("404 quando o pedido veio da internet (X-Forwarded-For do proxy)", async () => {
+    const r = await GET(new Request("http://app/api/tls-check?domain=plat.test", { headers: { "x-forwarded-for": "203.0.113.9" } }));
+    expect(r.status).toBe(404);
+  });
 });

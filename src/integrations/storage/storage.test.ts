@@ -68,3 +68,16 @@ describe("isOwnImageUrl", () => {
     expect(isOwnImageUrl(s, "L", url)).toBe(ok);
   });
 });
+
+describe("LocalDiskStorage.usage", () => {
+  it("soma os bytes da loja e e 0 sem pasta", async () => {
+    const root = mkdtempSync(join(tmpdir(), "usage-"));
+    dirs.push(root);
+    const s = new LocalDiskStorage(root);
+    expect(await s.usage("lojaA")).toBe(0);
+    await s.put({ storeId: "lojaA", bytes: PNG, contentType: "image/png" });
+    await s.put({ storeId: "lojaA", bytes: JPEG, contentType: "image/jpeg" });
+    await s.put({ storeId: "lojaB", bytes: WEBP, contentType: "image/webp" });
+    expect(await s.usage("lojaA")).toBe(PNG.byteLength + JPEG.byteLength);
+  });
+});

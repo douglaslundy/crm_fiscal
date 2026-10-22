@@ -9,6 +9,8 @@ export interface ImageStorage {
   remove(url: string): Promise<void>;
   /** Prefixo de toda URL emitida para a loja (termina em `stores/<storeId>/`). */
   urlPrefix(storeId: string): string;
+  /** Bytes ja gravados para a loja; ausente quando o provedor nao mede (Blob: cobranca fica la). */
+  usage?(storeId: string): Promise<number>;
 }
 
 /** URL emitida por este armazenamento para ESTA loja: prefixo exato + um nome de arquivo nosso (sem subpasta, query ou ..). */

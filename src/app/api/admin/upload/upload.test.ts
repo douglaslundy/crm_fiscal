@@ -93,4 +93,16 @@ describe("POST /api/admin/upload", () => {
     expect(await result(send(form({ file: new Blob([PNG], { type: "image/jpeg" }) })))).toEqual([400, "FILE_SIGNATURE_MISMATCH"]);
     expect(storage.files.size).toBe(0);
   });
+
+  it("loja acima da cota -> 413 QUOTA_EXCEEDED", async () => {
+    vi.stubEnv("STORE_UPLOAD_QUOTA_MB", "1");
+    Object.assign(storage, { usage: async () => 1024 * 1024 });
+    try {
+      expect(await result(send(form({ file: new Blob([PNG], { type: "image/png" }) })))).toEqual([413, "QUOTA_EXCEEDED"]);
+      expect(storage.files.size).toBe(0);
+    } finally {
+      delete (storage as { usage?: unknown }).usage;
+      vi.unstubAllEnvs();
+    }
+  });
 });

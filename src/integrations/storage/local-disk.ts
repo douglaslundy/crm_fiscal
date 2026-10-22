@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { IMAGE_TYPES, isOwnImageUrl, type ImageStorage, type ImageType } from "./image";
 
@@ -20,6 +20,17 @@ export class LocalDiskStorage implements ImageStorage {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, name), bytes);
     return { url: `${this.urlPrefix(storeId)}${name}` };
+  }
+
+  async usage(storeId: string) {
+    const dir = join(this.root, "stores", storeId);
+    const names = await readdir(dir).catch((e) => {
+      if (e.code !== "ENOENT") throw e;
+      return [] as string[];
+    });
+    let total = 0;
+    for (const n of names) total += (await stat(join(dir, n))).size;
+    return total;
   }
 
   async remove(url: string) {
