@@ -20,7 +20,12 @@ export async function generateMetadata({ params }: Props) {
   const store = await getCurrentStore();
   const product = isStoreOpen(store) ? await getProductBySlug(store.id, (await params).slug) : null;
   if (!product) return {}; // fica o titulo do layout (nome da loja)
-  return { title: `${product.name} | ${store.name}`, description: metaDescription(product.description, `${product.name} na ${store.name}`) };
+  const image = product.images[0]?.url;
+  return {
+    title: `${product.name} | ${store.name}`,
+    description: metaDescription(product.description, `${product.name} na ${store.name}`),
+    ...(image ? { openGraph: { images: [image] } } : {}),
+  };
 }
 
 export default async function ProductPage({ params }: Props) {

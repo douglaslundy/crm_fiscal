@@ -1,8 +1,10 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { getMenu, isStoreOpen } from "@/domain/catalog";
 import { getActiveCollections } from "@/domain/collections";
 import { getCurrentStore } from "@/lib/tenant";
+import { requestOrigin } from "@/lib/urls";
 import { CartLink } from "./cart-link";
 import { getTheme, textOn } from "@/domain/theme";
 import { SubscribeForm } from "./subscribe-form";
@@ -10,7 +12,8 @@ import { SubscribeForm } from "./subscribe-form";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata() {
-  return { title: (await getCurrentStore()).name };
+  const store = await getCurrentStore();
+  return { title: store.name, metadataBase: new URL(requestOrigin(await headers())), openGraph: { siteName: store.name, type: "website" } };
 }
 
 // Vitrine publica (sem login). Rotas publicas da loja chegam aqui pela reescrita do middleware.

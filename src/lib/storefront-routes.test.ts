@@ -8,6 +8,8 @@ describe("storefrontPath", () => {
     expect(storefrontPath("/p/camiseta-basica")).toBe("/vitrine/p/camiseta-basica");
     expect(storefrontPath("/colecao/verao")).toBe("/vitrine/colecao/verao");
     expect(storefrontPath("/buscar")).toBe("/vitrine/buscar");
+    expect(storefrontPath("/robots.txt")).toBe("/vitrine/robots.txt");
+    expect(storefrontPath("/sitemap.xml")).toBe("/vitrine/sitemap.xml");
     expect(storefrontPath("/carrinho")).toBe("/vitrine/carrinho");
     expect(storefrontPath("/termos")).toBe("/vitrine/termos");
     expect(storefrontPath("/privacidade")).toBe("/vitrine/privacidade");

@@ -12,6 +12,8 @@ const { default: Home } = await import("./page");
 const { default: ProductPage, generateMetadata: productMeta } = await import("./p/[slug]/page");
 const { default: CategoryPage, generateMetadata: categoryMeta } = await import("./c/[slug]/page");
 const { default: SearchPage } = await import("./buscar/page");
+const { GET: robotsGET } = await import("./robots.txt/route");
+const { GET: sitemapGET } = await import("./sitemap.xml/route");
 
 let tag: string;
 let planId: string;
@@ -109,5 +111,34 @@ describe("vitrine", () => {
     const page = await html(CategoryPage(params("camisetas")));
     expect(page).toContain("Na Categoria");
     expect(page).not.toContain("Fora");
+  });
+});
+
+describe("robots.txt e sitemap.xml", () => {
+  const req = (path: string, slug: string) => new Request(`http://${slug}.localhost${path}`, { headers: { host: `${slug}.localhost:3000` } });
+
+  it("loja aberta: robots barra areas privadas e aponta o sitemap; sitemap lista so itens ativos da propria loja", async () => {
+    await product(stores.a.id, "Camisa", "camisa");
+    await product(stores.b.id, "Alheio", "alheio");
+    const off = await product(stores.a.id, "Inativo", "inativo");
+    await dbForStore(stores.a.id).product.update({ where: { id: off.id }, data: { active: false } });
+    await dbForStore(stores.a.id).category.create({ data: { storeId: stores.a.id, name: "Camisas", slug: "camisas" } });
+    asStore(stores.a.slug);
+    const robots = await (await robotsGET(req("/robots.txt", stores.a.slug))).text();
+    expect(robots).toContain("Disallow: /checkout");
+    expect(robots).toContain(`Sitemap: http://${stores.a.slug}.localhost:3000/sitemap.xml`);
+    const xml = await (await sitemapGET(req("/sitemap.xml", stores.a.slug))).text();
+    expect(xml).toContain(`<loc>http://${stores.a.slug}.localhost:3000/p/camisa</loc>`);
+    expect(xml).toContain("/c/camisas");
+    expect(xml).not.toContain("alheio");
+    expect(xml).not.toContain("inativo");
+  });
+
+  it("loja fechada: robots bloqueia tudo e sitemap vem vazio", async () => {
+    await product(stores.a.id, "Camisa", "camisa");
+    await prisma.store.update({ where: { id: stores.a.id }, data: { status: "SUSPENDED" } });
+    asStore(stores.a.slug);
+    expect(await (await robotsGET(req("/robots.txt", stores.a.slug))).text()).toContain("Disallow: /\n");
+    expect(await (await sitemapGET(req("/sitemap.xml", stores.a.slug))).text()).not.toContain("<loc>");
   });
 });
