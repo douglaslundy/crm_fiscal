@@ -37,8 +37,8 @@ export default async function PainelPage({ searchParams }: { searchParams: Promi
       <h1>Painel</h1>
       {me && !me.emailVerifiedAt && (
         <form action={resendVerification} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span>Seu e-mail ainda n„o foi confirmado.</span>
-          <button type="submit">Reenviar confirmaÁ„o</button>
+          <span>Seu e-mail ainda n√£o foi confirmado.</span>
+          <button type="submit">Reenviar confirma√ß√£o</button>
         </form>
       )}
       <p style={{ display: "flex", gap: 12 }}>
